@@ -11,6 +11,7 @@ import (
 // Provider implements the libdns interfaces for Route53
 type Provider struct {
 	MaxRetries int `json:"max_retries,omitempty"`
+	AwsProfile string `json:"aws_profile,omitempty"`
 	client     *r53.Route53
 }
 
