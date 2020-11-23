@@ -20,7 +20,7 @@ func (p *Provider) NewSession() error {
 	}
 	sess, err := session.NewSessionWithOptions(session.Options{
 		// Specify profile to load for the session's config
-		Profile: p.AwsProfile,
+		Profile: p.AWSProfile,
 
 		// Provide SDK Config options, such as Region.
 		Config: aws.Config{
