@@ -19,15 +19,12 @@ func (p *Provider) NewSession() error {
 		p.MaxRetries = 5
 	}
 	sess, err := session.NewSessionWithOptions(session.Options{
-		// Specify profile to load for the session's config
 		Profile: p.AWSProfile,
 
-		// Provide SDK Config options, such as Region.
 		Config: aws.Config{
 			MaxRetries: aws.Int(p.MaxRetries),
 		},
 
-		// Force enable Shared Config support
 		SharedConfigState: session.SharedConfigEnable,
 	})
 	if err != nil {
