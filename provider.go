@@ -10,8 +10,11 @@ import (
 
 // Provider implements the libdns interfaces for Route53
 type Provider struct {
-	MaxRetries int `json:"max_retries,omitempty"`
-	client     *r53.Route53
+	MaxRetries      int    `json:"max_retries,omitempty"`
+	AccessKeyId     string `json:"access_key_id,omitempty"`
+	SecretAccessKey string `json:"secret_access_key,omitempty"`
+
+	client *r53.Route53
 }
 
 // GetRecords lists all the records in the zone.
