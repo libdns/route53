@@ -18,8 +18,14 @@ func (p *Provider) NewSession() error {
 	if p.MaxRetries == 0 {
 		p.MaxRetries = 5
 	}
-	sess, err := session.NewSession(&aws.Config{
-		MaxRetries: aws.Int(p.MaxRetries),
+	sess, err := session.NewSessionWithOptions(session.Options{
+		Profile: p.AWSProfile,
+
+		Config: aws.Config{
+			MaxRetries: aws.Int(p.MaxRetries),
+		},
+
+		SharedConfigState: session.SharedConfigEnable,
 	})
 	if err != nil {
 		return err
