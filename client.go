@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	r53 "github.com/aws/aws-sdk-go/service/route53"
 	"github.com/libdns/libdns"
@@ -18,13 +19,17 @@ func (p *Provider) NewSession() error {
 	if p.MaxRetries == 0 {
 		p.MaxRetries = 5
 	}
+
+	config := &aws.Config{
+		MaxRetries: aws.Int(p.MaxRetries),
+	}
+	if p.AccessKeyId != "" {
+		config = config.WithCredentials(credentials.NewStaticCredentials(p.AccessKeyId, p.SecretAccessKey, ""))
+	}
+
 	sess, err := session.NewSessionWithOptions(session.Options{
-		Profile: p.AWSProfile,
-
-		Config: aws.Config{
-			MaxRetries: aws.Int(p.MaxRetries),
-		},
-
+		Profile:           p.AWSProfile,
+		Config:            *config,
 		SharedConfigState: session.SharedConfigEnable,
 	})
 	if err != nil {

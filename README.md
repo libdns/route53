@@ -7,7 +7,7 @@ This package implements the [libdns interfaces](https://github.com/libdns/libdns
 
 ## Authenticating
 
-This package supports all the credential configuration methods described in the [AWS Developer Guide](https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk.html), such as `Environment Variables`, `EC2 Instance Profile` and the `AWS Credentials file` located in `.aws/credentials`
+This package supports all the credential configuration methods described in the [AWS Developer Guide](https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk.html), such as `Environment Variables`, `EC2 Instance Profile` and the `AWS Credentials file` located in `.aws/credentials`. You may also pass in static credentials directly (or via caddy's configuration).
 
 The following IAM policy is a minimal working example to give `libdns` permissions to manage DNS records:
 
