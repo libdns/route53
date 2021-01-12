@@ -19,6 +19,7 @@ func (p *Provider) NewSession() error {
 	if p.MaxRetries == 0 {
 		p.MaxRetries = 5
 	}
+
 	config := &aws.Config{
 		MaxRetries: aws.Int(p.MaxRetries),
 	}
@@ -26,7 +27,11 @@ func (p *Provider) NewSession() error {
 		config = config.WithCredentials(credentials.NewStaticCredentials(p.AccessKeyId, p.SecretAccessKey, ""))
 	}
 
-	sess, err := session.NewSession(config)
+	sess, err := session.NewSessionWithOptions(session.Options{
+		Profile:           p.AWSProfile,
+		Config:            *config,
+		SharedConfigState: session.SharedConfigEnable,
+	})
 	if err != nil {
 		return err
 	}
