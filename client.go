@@ -41,7 +41,7 @@ func (p *Provider) NewSession() error {
 	return nil
 }
 
-func (p *Provider) getRecords(ctx context.Context, zoneID string) ([]libdns.Record, error) {
+func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
 	getRecordsInput := &r53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		MaxItems:     aws.String("1000"),
@@ -77,10 +77,12 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string) ([]libdns.Reco
 		}
 	}
 
+	fmt.Printf("+++++=-=-=getRecords-=-=++++")
+
 	for _, rrset := range recordSets {
 		for _, rrsetRecord := range rrset.ResourceRecords {
 			record := libdns.Record{
-				Name:  *rrset.Name,
+				Name:  libdns.RelativeName(*rrset.Name, zone),
 				Value: *rrsetRecord.Value,
 				Type:  *rrset.Type,
 				TTL:   time.Duration(*rrset.TTL) * time.Second,

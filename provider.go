@@ -24,7 +24,7 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 		return nil, err
 	}
 
-	records, err := p.getRecords(ctx, zoneID)
+	records, err := p.getRecords(ctx, zoneID, zone)
 	if err != nil {
 		return nil, err
 	}
