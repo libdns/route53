@@ -124,7 +124,7 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 	return "", fmt.Errorf("%s: No zones found for the domain %s", r53.ErrCodeHostedZoneNotFound, zoneName)
 }
 
-func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdns.Record) (libdns.Record, error) {
+func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	// AWS Route53 TXT record value must be enclosed in quotation marks on create
 	if record.Type == "TXT" {
 		record.Value = strconv.Quote(record.Value)
@@ -136,7 +136,7 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 				{
 					Action: aws.String("CREATE"),
 					ResourceRecordSet: &r53.ResourceRecordSet{
-						Name: aws.String(record.Name),
+						Name: aws.String(libdns.RelativeName(record.Name, zone)),
 						ResourceRecords: []*r53.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
@@ -159,7 +159,7 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 	return record, nil
 }
 
-func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record) (libdns.Record, error) {
+func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
 	if record.Type == "TXT" {
 		record.Value = strconv.Quote(record.Value)
@@ -171,7 +171,7 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 				{
 					Action: aws.String("UPSERT"),
 					ResourceRecordSet: &r53.ResourceRecordSet{
-						Name: aws.String(record.Name),
+						Name: aws.String(libdns.RelativeName(record.Name, zone)),
 						ResourceRecords: []*r53.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
@@ -194,14 +194,14 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 	return record, nil
 }
 
-func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdns.Record) (libdns.Record, error) {
+func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	deleteInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &r53.ChangeBatch{
 			Changes: []*r53.Change{
 				{
 					Action: aws.String("DELETE"),
 					ResourceRecordSet: &r53.ResourceRecordSet{
-						Name: aws.String(record.Name),
+						Name: aws.String(libdns.RelativeName(record.Name, zone)),
 						ResourceRecords: []*r53.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
