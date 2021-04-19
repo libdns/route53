@@ -77,15 +77,10 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 		}
 	}
 
-	fmt.Println("+++++=-=-=getRecords-=-=++++")
-
 	for _, rrset := range recordSets {
 		for _, rrsetRecord := range rrset.ResourceRecords {
-			fmt.Println("hellodfsdf1=" + *rrset.Name)
-			fmt.Println("hellodfsdf2=" + zone)
-			fmt.Println("hellodfsdf3=" + libdns.RelativeName(*rrset.Name, zone))
 			record := libdns.Record{
-				Name:  libdns.RelativeName(*rrset.Name, zone),
+				Name:  libdns.AbsoluteName(*rrset.Name, zone),
 				Value: *rrsetRecord.Value,
 				Type:  *rrset.Type,
 				TTL:   time.Duration(*rrset.TTL) * time.Second,
@@ -135,16 +130,13 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 		record.Value = strconv.Quote(record.Value)
 	}
 
-	fmt.Printf("createRecord-=-=")
-	fmt.Printf(libdns.RelativeName(record.Name, zone))
-
 	createInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &r53.ChangeBatch{
 			Changes: []*r53.Change{
 				{
 					Action: aws.String("CREATE"),
 					ResourceRecordSet: &r53.ResourceRecordSet{
-						Name: aws.String(libdns.RelativeName(record.Name, zone)),
+						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
 						ResourceRecords: []*r53.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
@@ -173,16 +165,13 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 		record.Value = strconv.Quote(record.Value)
 	}
 
-	fmt.Printf("updateRecord-=-=")
-	fmt.Printf(libdns.RelativeName(record.Name, zone))
-
 	updateInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &r53.ChangeBatch{
 			Changes: []*r53.Change{
 				{
 					Action: aws.String("UPSERT"),
 					ResourceRecordSet: &r53.ResourceRecordSet{
-						Name: aws.String(libdns.RelativeName(record.Name, zone)),
+						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
 						ResourceRecords: []*r53.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
@@ -206,17 +195,13 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
-
-	fmt.Printf("deleteRecord-=-=")
-	fmt.Printf(libdns.RelativeName(record.Name, zone))
-
 	deleteInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &r53.ChangeBatch{
 			Changes: []*r53.Change{
 				{
 					Action: aws.String("DELETE"),
 					ResourceRecordSet: &r53.ResourceRecordSet{
-						Name: aws.String(libdns.RelativeName(record.Name, zone)),
+						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
 						ResourceRecords: []*r53.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
