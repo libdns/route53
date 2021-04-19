@@ -130,6 +130,9 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 		record.Value = strconv.Quote(record.Value)
 	}
 
+	fmt.Printf("createRecord-=-=")
+	fmt.Printf(libdns.RelativeName(record.Name, zone))
+
 	createInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &r53.ChangeBatch{
 			Changes: []*r53.Change{
@@ -165,6 +168,9 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 		record.Value = strconv.Quote(record.Value)
 	}
 
+	fmt.Printf("updateRecord-=-=")
+	fmt.Printf(libdns.RelativeName(record.Name, zone))
+
 	updateInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &r53.ChangeBatch{
 			Changes: []*r53.Change{
@@ -195,6 +201,10 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
+
+	fmt.Printf("deleteRecord-=-=")
+	fmt.Printf(libdns.RelativeName(record.Name, zone))
+
 	deleteInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &r53.ChangeBatch{
 			Changes: []*r53.Change{
