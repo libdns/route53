@@ -83,6 +83,7 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 		for _, rrsetRecord := range rrset.ResourceRecords {
 			fmt.Println("hellodfsdf1=" + *rrset.Name)
 			fmt.Println("hellodfsdf2=" + zone)
+			fmt.Println("hellodfsdf3=" + libdns.RelativeName(*rrset.Name, zone))
 			record := libdns.Record{
 				Name:  libdns.RelativeName(*rrset.Name, zone),
 				Value: *rrsetRecord.Value,
