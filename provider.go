@@ -24,7 +24,7 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 		return nil, err
 	}
 
-	records, err := p.getRecords(ctx, zoneID)
+	records, err := p.getRecords(ctx, zoneID, zone)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (p *Provider) AppendRecords(ctx context.Context, zone string, records []lib
 	var createdRecords []libdns.Record
 
 	for _, record := range records {
-		newRecord, err := p.createRecord(ctx, zoneID, record)
+		newRecord, err := p.createRecord(ctx, zoneID, record, zone)
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +64,7 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, records []lib
 	var deletedRecords []libdns.Record
 
 	for _, record := range records {
-		deletedRecord, err := p.deleteRecord(ctx, zoneID, record)
+		deletedRecord, err := p.deleteRecord(ctx, zoneID, record, zone)
 		if err != nil {
 			return nil, err
 		}
@@ -86,7 +86,7 @@ func (p *Provider) SetRecords(ctx context.Context, zone string, records []libdns
 	var updatedRecords []libdns.Record
 
 	for _, record := range records {
-		updatedRecord, err := p.updateRecord(ctx, zoneID, record)
+		updatedRecord, err := p.updateRecord(ctx, zoneID, record, zone)
 		if err != nil {
 			return nil, err
 		}
