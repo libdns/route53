@@ -142,7 +142,7 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 								Value: aws.String(record.Value),
 							},
 						},
-						TTL:  aws.Int64(int64(record.TTL)),
+						TTL:  aws.Int64(int64(record.TTL.Seconds())),
 						Type: aws.String(record.Type),
 					},
 				},
