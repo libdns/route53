@@ -17,31 +17,36 @@ import (
 	"github.com/libdns/libdns"
 )
 
-// NewSession initializes the AWS client
-func (p *Provider) NewSession() error {
+// init initializes the AWS client
+func (p *Provider) init(ctx context.Context) {
+	if p.client != nil {
+		return
+	}
+
 	if p.MaxRetries == 0 {
 		p.MaxRetries = 5
 	}
-
-	config := &aws.Config{
-		MaxRetries: aws.Int(p.MaxRetries),
+	if p.Region == "" {
+		p.Region = "us-east-1"
 	}
-	if p.AccessKeyId != "" {
-		config = config.WithCredentials(credentials.NewStaticCredentials(p.AccessKeyId, p.SecretAccessKey, ""))
+	if p.MaxWaitDur == 0 {
+		p.MaxWaitDur = time.Minute
 	}
 
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Profile:           p.AWSProfile,
-		Config:            *config,
-		SharedConfigState: session.SharedConfigEnable,
-	})
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithSharedConfigProfile(p.AWSProfile),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(p.AccessKeyId, p.SecretAccessKey, p.Token)),
+		config.WithRegion(p.Region),
+		config.WithRetryer(func() aws.Retryer {
+			return retry.AddWithMaxAttempts(retry.NewStandard(), p.MaxRetries)
+		}),
+	)
+
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
 
-	p.client = r53.New(sess)
-
-	return nil
+	p.client = r53.NewFromConfig(cfg)
 }
 
 func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
