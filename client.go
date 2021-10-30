@@ -2,15 +2,18 @@ package route53
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	r53 "github.com/aws/aws-sdk-go/service/route53"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	r53 "github.com/aws/aws-sdk-go-v2/service/route53"
+	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/libdns/libdns"
 )
 
@@ -44,31 +47,28 @@ func (p *Provider) NewSession() error {
 func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
 	getRecordsInput := &r53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
-		MaxItems:     aws.String("1000"),
+		MaxItems:     aws.Int32(1000),
 	}
 
 	var records []libdns.Record
-	var recordSets []*r53.ResourceRecordSet
+	var recordSets []types.ResourceRecordSet
 
 	for {
-		getRecordResult, err := p.client.ListResourceRecordSetsWithContext(ctx, getRecordsInput)
+		getRecordResult, err := p.client.ListResourceRecordSets(ctx, getRecordsInput)
 		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				case r53.ErrCodeNoSuchHostedZone:
-					return records, fmt.Errorf("%s: %s", r53.ErrCodeNoSuchHostedZone, aerr.Error())
-				case r53.ErrCodeInvalidInput:
-					return records, fmt.Errorf("%s: %s", r53.ErrCodeInvalidInput, aerr.Error())
-				default:
-					return records, fmt.Errorf(aerr.Error())
-				}
+			var nshze *types.NoSuchHostedZone
+			var iie *types.InvalidInput
+			if errors.As(err, &nshze) {
+				return records, fmt.Errorf("NoSuchHostedZone: %s", err)
+			} else if errors.As(err, &iie) {
+				return records, fmt.Errorf("InvalidInput: %s", err)
 			} else {
-				return records, fmt.Errorf(err.Error())
+				return records, err
 			}
 		}
 
 		recordSets = append(recordSets, getRecordResult.ResourceRecordSets...)
-		if *getRecordResult.IsTruncated {
+		if getRecordResult.IsTruncated {
 			getRecordsInput.StartRecordName = getRecordResult.NextRecordName
 			getRecordsInput.StartRecordType = getRecordResult.NextRecordType
 			getRecordsInput.StartRecordIdentifier = getRecordResult.NextRecordIdentifier
@@ -82,7 +82,7 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 			record := libdns.Record{
 				Name:  libdns.AbsoluteName(*rrset.Name, zone),
 				Value: *rrsetRecord.Value,
-				Type:  *rrset.Type,
+				Type:  string(rrset.Type),
 				TTL:   time.Duration(*rrset.TTL) * time.Second,
 			}
 
@@ -96,22 +96,19 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, error) {
 	getZoneInput := &r53.ListHostedZonesByNameInput{
 		DNSName:  aws.String(zoneName),
-		MaxItems: aws.String("1"),
+		MaxItems: aws.Int32(1),
 	}
 
-	getZoneResult, err := p.client.ListHostedZonesByNameWithContext(ctx, getZoneInput)
+	getZoneResult, err := p.client.ListHostedZonesByName(ctx, getZoneInput)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case r53.ErrCodeInvalidDomainName:
-				return "", fmt.Errorf("%s: %s", r53.ErrCodeInvalidDomainName, aerr.Error())
-			case r53.ErrCodeInvalidInput:
-				return "", fmt.Errorf("%s: %s", r53.ErrCodeInvalidInput, aerr.Error())
-			default:
-				return "", fmt.Errorf(aerr.Error())
-			}
+		var idne *types.InvalidDomainName
+		var iie *types.InvalidInput
+		if errors.As(err, &idne) {
+			return "", fmt.Errorf("InvalidDomainName: %s", err)
+		} else if errors.As(err, &iie) {
+			return "", fmt.Errorf("InvalidInput: %s", err)
 		} else {
-			return "", fmt.Errorf(err.Error())
+			return "", err
 		}
 	}
 
@@ -121,7 +118,7 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 		}
 	}
 
-	return "", fmt.Errorf("%s: No zones found for the domain %s", r53.ErrCodeHostedZoneNotFound, zoneName)
+	return "", fmt.Errorf("HostedZoneNotFound: No zones found for the domain %s", zoneName)
 }
 
 func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
@@ -131,19 +128,19 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 	}
 
 	createInput := &r53.ChangeResourceRecordSetsInput{
-		ChangeBatch: &r53.ChangeBatch{
-			Changes: []*r53.Change{
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{
 				{
-					Action: aws.String("CREATE"),
-					ResourceRecordSet: &r53.ResourceRecordSet{
+					Action: types.ChangeActionCreate,
+					ResourceRecordSet: &types.ResourceRecordSet{
 						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []*r53.ResourceRecord{
+						ResourceRecords: []types.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
 							},
 						},
 						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: aws.String(record.Type),
+						Type: types.RRType(record.Type),
 					},
 				},
 			},
@@ -166,19 +163,19 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 	}
 
 	updateInput := &r53.ChangeResourceRecordSetsInput{
-		ChangeBatch: &r53.ChangeBatch{
-			Changes: []*r53.Change{
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{
 				{
-					Action: aws.String("UPSERT"),
-					ResourceRecordSet: &r53.ResourceRecordSet{
+					Action: types.ChangeActionUpsert,
+					ResourceRecordSet: &types.ResourceRecordSet{
 						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []*r53.ResourceRecord{
+						ResourceRecords: []types.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
 							},
 						},
 						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: aws.String(record.Type),
+						Type: types.RRType(record.Type),
 					},
 				},
 			},
@@ -196,19 +193,19 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 
 func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	deleteInput := &r53.ChangeResourceRecordSetsInput{
-		ChangeBatch: &r53.ChangeBatch{
-			Changes: []*r53.Change{
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{
 				{
-					Action: aws.String("DELETE"),
-					ResourceRecordSet: &r53.ResourceRecordSet{
+					Action: types.ChangeActionDelete,
+					ResourceRecordSet: &types.ResourceRecordSet{
 						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []*r53.ResourceRecord{
+						ResourceRecords: []types.ResourceRecord{
 							{
 								Value: aws.String(record.Value),
 							},
 						},
 						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: aws.String(record.Type),
+						Type: types.RRType(record.Type),
 					},
 				},
 			},
@@ -225,23 +222,22 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRecordSetsInput) error {
-	changeResult, err := p.client.ChangeResourceRecordSetsWithContext(ctx, input)
+	changeResult, err := p.client.ChangeResourceRecordSets(ctx, input)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case r53.ErrCodeNoSuchHostedZone:
-				return fmt.Errorf("%s: %s", r53.ErrCodeNoSuchHostedZone, aerr.Error())
-			case r53.ErrCodeInvalidChangeBatch:
-				return fmt.Errorf("%s: %s", r53.ErrCodeInvalidChangeBatch, aerr.Error())
-			case r53.ErrCodeInvalidInput:
-				return fmt.Errorf("%s: %s", r53.ErrCodeInvalidInput, aerr.Error())
-			case r53.ErrCodePriorRequestNotComplete:
-				return fmt.Errorf("%s: %s", r53.ErrCodePriorRequestNotComplete, aerr.Error())
-			default:
-				return fmt.Errorf(aerr.Error())
-			}
+		var nshze *types.NoSuchHostedZone
+		var icbe *types.InvalidChangeBatch
+		var iie *types.InvalidInput
+		var prnce *types.PriorRequestNotComplete
+		if errors.As(err, &nshze) {
+			return fmt.Errorf("NoSuchHostedZone: %s", err)
+		} else if errors.As(err, &icbe) {
+			return fmt.Errorf("InvalidChangeBatch: %s", err)
+		} else if errors.As(err, &iie) {
+			return fmt.Errorf("InvalidInput: %s", err)
+		} else if errors.As(err, &prnce) {
+			return fmt.Errorf("PriorRequestNotComplete: %s", err)
 		} else {
-			return fmt.Errorf(err.Error())
+			return err
 		}
 	}
 
@@ -250,9 +246,10 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 	}
 
 	// Wait for the RecordSetChange status to be "INSYNC"
-	err = p.client.WaitUntilResourceRecordSetsChangedWithContext(ctx, changeInput)
+	waiter := r53.NewResourceRecordSetsChangedWaiter(p.client)
+	err = waiter.Wait(ctx, changeInput, p.MaxWaitDur)
 	if err != nil {
-		return fmt.Errorf(err.Error())
+		return err
 	}
 
 	return nil

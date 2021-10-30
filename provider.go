@@ -4,17 +4,20 @@ import (
 	"context"
 	"time"
 
-	r53 "github.com/aws/aws-sdk-go/service/route53"
+	r53 "github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/libdns/libdns"
 )
 
 // Provider implements the libdns interfaces for Route53
 type Provider struct {
-	MaxRetries      int    `json:"max_retries,omitempty"`
-	AWSProfile      string `json:"aws_profile,omitempty"`
-	AccessKeyId     string `json:"access_key_id,omitempty"`
-	SecretAccessKey string `json:"secret_access_key,omitempty"`
-	client          *r53.Route53
+	MaxRetries      int           `json:"max_retries,omitempty"`
+	MaxWaitDur      time.Duration `json:"max_wait_dur,omitempty"`
+	Region          string        `json:"region,omitempty"`
+	AWSProfile      string        `json:"aws_profile,omitempty"`
+	AccessKeyId     string        `json:"access_key_id,omitempty"`
+	SecretAccessKey string        `json:"secret_access_key,omitempty"`
+	Token           string        `json:"token,omitempty"`
+	client          *r53.Client
 }
 
 // GetRecords lists all the records in the zone.
