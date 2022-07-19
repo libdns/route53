@@ -33,14 +33,20 @@ func (p *Provider) init(ctx context.Context) {
 		p.MaxWaitDur = time.Minute
 	}
 
-	cfg, err := config.LoadDefaultConfig(ctx,
+	opts := make([]func(*config.LoadOptions) error, 0)
+	opts = append(opts,
 		config.WithSharedConfigProfile(p.AWSProfile),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(p.AccessKeyId, p.SecretAccessKey, p.Token)),
 		config.WithRegion(p.Region),
 		config.WithRetryer(func() aws.Retryer {
 			return retry.AddWithMaxAttempts(retry.NewStandard(), p.MaxRetries)
 		}),
 	)
+	if p.AccessKeyId != "" && p.SecretAccessKey != "" {
+		opts = append(opts,
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(p.AccessKeyId, p.SecretAccessKey, p.Token)),
+		)
+	}
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 
 	if err != nil {
 		log.Fatal(err)
