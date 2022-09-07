@@ -146,7 +146,10 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 
 func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	// AWS Route53 TXT record value must be enclosed in quotation marks on create
-	if record.Type == "TXT" || record.Type == "SPF" {
+	switch record.Type {
+	case "TXT":
+		return p.updateRecord(ctx, zoneID, record, zone)
+	case "SPF":
 		record.Value = strconv.Quote(record.Value)
 	}
 
@@ -180,9 +183,26 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
+	resourceRecords := make([]types.ResourceRecord, 0)
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
-	if record.Type == "TXT" || record.Type == "SPF" {
-		record.Value = strconv.Quote(record.Value)
+	switch record.Type {
+	case "SPF", "TXT":
+		resourceRecords = append(resourceRecords, types.ResourceRecord{
+			Value: aws.String(strconv.Quote(record.Value)),
+		})
+	}
+	if record.Type == "TXT" {
+		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.Name)
+		if err != nil {
+			return record, err
+		}
+		for _, r := range txtRecords {
+			if record.Value != r.Value {
+				resourceRecords = append(resourceRecords, types.ResourceRecord{
+					Value: aws.String(strconv.Quote(r.Value)),
+				})
+			}
+		}
 	}
 
 	updateInput := &r53.ChangeResourceRecordSetsInput{
@@ -191,14 +211,10 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 				{
 					Action: types.ChangeActionUpsert,
 					ResourceRecordSet: &types.ResourceRecordSet{
-						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []types.ResourceRecord{
-							{
-								Value: aws.String(record.Value),
-							},
-						},
-						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: types.RRType(record.Type),
+						Name:            aws.String(libdns.AbsoluteName(record.Name, zone)),
+						ResourceRecords: resourceRecords,
+						TTL:             aws.Int64(int64(record.TTL.Seconds())),
+						Type:            types.RRType(record.Type),
 					},
 				},
 			},
@@ -279,4 +295,32 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 	}
 
 	return nil
+}
+
+func (p *Provider) getTxtRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
+	txtRecords := make([]libdns.Record, 0)
+	records, err := p.getRecords(ctx, zoneID, zone)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range records {
+		if r.Type == "TXT" {
+			txtRecords = append(txtRecords, r)
+		}
+	}
+	return txtRecords, nil
+}
+
+func (p *Provider) getTxtRecordsFor(ctx context.Context, zoneID string, zone string, name string) ([]libdns.Record, error) {
+	txtRecords, err := p.getTxtRecords(ctx, zoneID, zone)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]libdns.Record, 0)
+	for _, r := range txtRecords {
+		if libdns.AbsoluteName(name, zone) == r.Name {
+			records = append(records, r)
+		}
+	}
+	return records, nil
 }
