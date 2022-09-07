@@ -90,10 +90,22 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 
 	for _, rrset := range recordSets {
 		for _, rrsetRecord := range rrset.ResourceRecords {
+			rtype := rrset.Type
+			value := *rrsetRecord.Value
+			// Route53 returns TXT & SPF records with quotes around them.
+			// https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#TXTFormat
+			switch rtype {
+			case types.RRTypeTxt, types.RRTypeSpf:
+				var err error
+				value, err = strconv.Unquote(value)
+				if err != nil {
+					return records, fmt.Errorf("Error unquoting TXT/SPF record: %s", err)
+				}
+			}
 			record := libdns.Record{
 				Name:  libdns.AbsoluteName(*rrset.Name, zone),
-				Value: *rrsetRecord.Value,
-				Type:  string(rrset.Type),
+				Value: value,
+				Type:  string(rtype),
 				TTL:   time.Duration(*rrset.TTL) * time.Second,
 			}
 
