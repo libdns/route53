@@ -146,7 +146,7 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 
 func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	// AWS Route53 TXT record value must be enclosed in quotation marks on create
-	if record.Type == "TXT" {
+	if record.Type == "TXT" || record.Type == "SPF" {
 		record.Value = strconv.Quote(record.Value)
 	}
 
@@ -181,7 +181,7 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 
 func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
-	if record.Type == "TXT" {
+	if record.Type == "TXT" || record.Type == "SPF" {
 		record.Value = strconv.Quote(record.Value)
 	}
 
