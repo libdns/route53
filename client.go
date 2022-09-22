@@ -123,10 +123,31 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 		}
 	}
 
+	matchingZones := []types.HostedZone{}
+
 	if len(getZoneResult.HostedZones) > 0 {
-		if *getZoneResult.HostedZones[0].Name == zoneName {
-			return *getZoneResult.HostedZones[0].Id, nil
+		for z := 0; z < len(getZoneResult.HostedZones); z++ {
+			if *getZoneResult.HostedZones[z].Name == zoneName {
+				matchingZones = append(matchingZones, getZoneResult.HostedZones[z])
+			}
 		}
+	}
+
+	if len(matchingZones) == 1 {
+		return *matchingZones[0].Id, nil
+	}
+
+	// If multiple zones matched the name
+	if len(matchingZones) > 1 {
+		// Select the first public (i.e. ot-private) zone as a best guess.
+		for m := 0; m < len(matchingZones); m++ {
+			if !matchingZones[m].Config.PrivateZone {
+				return *matchingZones[m].Id, nil
+			}
+		}
+		// All zone were private, give up and return.
+		// Historically we always returned the first match without checking for public/private
+		return *matchingZones[0].Id, nil
 	}
 
 	return "", fmt.Errorf("HostedZoneNotFound: No zones found for the domain %s", zoneName)
