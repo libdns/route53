@@ -263,21 +263,7 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRecordSetsInput) error {
 	changeResult, err := p.client.ChangeResourceRecordSets(ctx, input)
 	if err != nil {
-		var nshze *types.NoSuchHostedZone
-		var icbe *types.InvalidChangeBatch
-		var iie *types.InvalidInput
-		var prnce *types.PriorRequestNotComplete
-		if errors.As(err, &nshze) {
-			return fmt.Errorf("NoSuchHostedZone: %s", err)
-		} else if errors.As(err, &icbe) {
-			return fmt.Errorf("InvalidChangeBatch: %s", err)
-		} else if errors.As(err, &iie) {
-			return fmt.Errorf("InvalidInput: %s", err)
-		} else if errors.As(err, &prnce) {
-			return fmt.Errorf("PriorRequestNotComplete: %s", err)
-		} else {
-			return err
-		}
+		return err
 	}
 
 	// Waiting for propagation if it's set in the provider config.
