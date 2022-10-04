@@ -231,20 +231,45 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
+	action := types.ChangeActionDelete
+	resourceRecords := make([]types.ResourceRecord, 0)
+	// AWS Route53 TXT record value must be enclosed in quotation marks on update
+	switch record.Type {
+	case "SPF", "TXT":
+		resourceRecords = append(resourceRecords, types.ResourceRecord{
+			Value: aws.String(strconv.Quote(record.Value)),
+		})
+	}
+	if record.Type == "TXT" {
+		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.Name)
+		if err != nil {
+			return record, err
+		}
+		switch {
+		case len(txtRecords) > 0 && txtRecords[0].Value != record.Value,
+			len(txtRecords) > 1:
+			action = types.ChangeActionUpsert
+			resourceRecords = make([]types.ResourceRecord, 0)
+		}
+		for _, r := range txtRecords {
+			if record.Value != r.Value {
+				resourceRecords = append(resourceRecords, types.ResourceRecord{
+					Value: aws.String(strconv.Quote(r.Value)),
+				})
+			}
+		}
+	}
+
 	deleteInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
 			Changes: []types.Change{
 				{
-					Action: types.ChangeActionDelete,
+					Action: action,
 					ResourceRecordSet: &types.ResourceRecordSet{
-						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []types.ResourceRecord{
-							{
-								Value: aws.String(record.Value),
-							},
-						},
-						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: types.RRType(record.Type),
+						Name:            aws.String(libdns.AbsoluteName(record.Name, zone)),
+						ResourceRecords: resourceRecords,
+						TTL:             aws.Int64(int64(record.TTL.Seconds())),
+						Type:            types.RRType(record.Type),
 					},
 				},
 			},
@@ -254,6 +279,10 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 
 	err := p.applyChange(ctx, deleteInput)
 	if err != nil {
+		var nfe *types.InvalidChangeBatch
+		if record.Type == "TXT" && errors.As(err, &nfe) {
+			return record, nil
+		}
 		return record, err
 	}
 
