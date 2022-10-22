@@ -90,10 +90,22 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 
 	for _, rrset := range recordSets {
 		for _, rrsetRecord := range rrset.ResourceRecords {
+			rtype := rrset.Type
+			value := *rrsetRecord.Value
+			// Route53 returns TXT & SPF records with quotes around them.
+			// https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#TXTFormat
+			switch rtype {
+			case types.RRTypeTxt, types.RRTypeSpf:
+				var err error
+				value, err = strconv.Unquote(value)
+				if err != nil {
+					return records, fmt.Errorf("Error unquoting TXT/SPF record: %s", err)
+				}
+			}
 			record := libdns.Record{
-				Name:  libdns.AbsoluteName(*rrset.Name, zone),
-				Value: *rrsetRecord.Value,
-				Type:  string(rrset.Type),
+				Name:  *rrset.Name,
+				Value: value,
+				Type:  string(rtype),
 				TTL:   time.Duration(*rrset.TTL) * time.Second,
 			}
 
@@ -155,7 +167,10 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 
 func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	// AWS Route53 TXT record value must be enclosed in quotation marks on create
-	if record.Type == "TXT" {
+	switch record.Type {
+	case "TXT":
+		return p.updateRecord(ctx, zoneID, record, zone)
+	case "SPF":
 		record.Value = strconv.Quote(record.Value)
 	}
 
@@ -189,9 +204,26 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
+	resourceRecords := make([]types.ResourceRecord, 0)
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
+	switch record.Type {
+	case "SPF", "TXT":
+		resourceRecords = append(resourceRecords, types.ResourceRecord{
+			Value: aws.String(strconv.Quote(record.Value)),
+		})
+	}
 	if record.Type == "TXT" {
-		record.Value = strconv.Quote(record.Value)
+		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.Name)
+		if err != nil {
+			return record, err
+		}
+		for _, r := range txtRecords {
+			if record.Value != r.Value {
+				resourceRecords = append(resourceRecords, types.ResourceRecord{
+					Value: aws.String(strconv.Quote(r.Value)),
+				})
+			}
+		}
 	}
 
 	updateInput := &r53.ChangeResourceRecordSetsInput{
@@ -200,14 +232,10 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 				{
 					Action: types.ChangeActionUpsert,
 					ResourceRecordSet: &types.ResourceRecordSet{
-						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []types.ResourceRecord{
-							{
-								Value: aws.String(record.Value),
-							},
-						},
-						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: types.RRType(record.Type),
+						Name:            aws.String(libdns.AbsoluteName(record.Name, zone)),
+						ResourceRecords: resourceRecords,
+						TTL:             aws.Int64(int64(record.TTL.Seconds())),
+						Type:            types.RRType(record.Type),
 					},
 				},
 			},
@@ -224,20 +252,45 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
+	action := types.ChangeActionDelete
+	resourceRecords := make([]types.ResourceRecord, 0)
+	// AWS Route53 TXT record value must be enclosed in quotation marks on update
+	switch record.Type {
+	case "SPF", "TXT":
+		resourceRecords = append(resourceRecords, types.ResourceRecord{
+			Value: aws.String(strconv.Quote(record.Value)),
+		})
+	}
+	if record.Type == "TXT" {
+		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.Name)
+		if err != nil {
+			return record, err
+		}
+		switch {
+		case len(txtRecords) > 0 && txtRecords[0].Value != record.Value,
+			len(txtRecords) > 1:
+			action = types.ChangeActionUpsert
+			resourceRecords = make([]types.ResourceRecord, 0)
+		}
+		for _, r := range txtRecords {
+			if record.Value != r.Value {
+				resourceRecords = append(resourceRecords, types.ResourceRecord{
+					Value: aws.String(strconv.Quote(r.Value)),
+				})
+			}
+		}
+	}
+
 	deleteInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
 			Changes: []types.Change{
 				{
-					Action: types.ChangeActionDelete,
+					Action: action,
 					ResourceRecordSet: &types.ResourceRecordSet{
-						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []types.ResourceRecord{
-							{
-								Value: aws.String(record.Value),
-							},
-						},
-						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: types.RRType(record.Type),
+						Name:            aws.String(libdns.AbsoluteName(record.Name, zone)),
+						ResourceRecords: resourceRecords,
+						TTL:             aws.Int64(int64(record.TTL.Seconds())),
+						Type:            types.RRType(record.Type),
 					},
 				},
 			},
@@ -247,6 +300,10 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 
 	err := p.applyChange(ctx, deleteInput)
 	if err != nil {
+		var nfe *types.InvalidChangeBatch
+		if record.Type == "TXT" && errors.As(err, &nfe) {
+			return record, nil
+		}
 		return record, err
 	}
 
@@ -256,21 +313,7 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRecordSetsInput) error {
 	changeResult, err := p.client.ChangeResourceRecordSets(ctx, input)
 	if err != nil {
-		var nshze *types.NoSuchHostedZone
-		var icbe *types.InvalidChangeBatch
-		var iie *types.InvalidInput
-		var prnce *types.PriorRequestNotComplete
-		if errors.As(err, &nshze) {
-			return fmt.Errorf("NoSuchHostedZone: %s", err)
-		} else if errors.As(err, &icbe) {
-			return fmt.Errorf("InvalidChangeBatch: %s", err)
-		} else if errors.As(err, &iie) {
-			return fmt.Errorf("InvalidInput: %s", err)
-		} else if errors.As(err, &prnce) {
-			return fmt.Errorf("PriorRequestNotComplete: %s", err)
-		} else {
-			return err
-		}
+		return err
 	}
 
 	// Waiting for propagation if it's set in the provider config.
@@ -288,4 +331,32 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 	}
 
 	return nil
+}
+
+func (p *Provider) getTxtRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
+	txtRecords := make([]libdns.Record, 0)
+	records, err := p.getRecords(ctx, zoneID, zone)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range records {
+		if r.Type == "TXT" {
+			txtRecords = append(txtRecords, r)
+		}
+	}
+	return txtRecords, nil
+}
+
+func (p *Provider) getTxtRecordsFor(ctx context.Context, zoneID string, zone string, name string) ([]libdns.Record, error) {
+	txtRecords, err := p.getTxtRecords(ctx, zoneID, zone)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]libdns.Record, 0)
+	for _, r := range txtRecords {
+		if libdns.AbsoluteName(name, zone) == r.Name {
+			records = append(records, r)
+		}
+	}
+	return records, nil
 }
