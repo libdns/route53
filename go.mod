@@ -1,6 +1,6 @@
 module github.com/libdns/route53
 
-go 1.14
+go 1.15
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.17.5
