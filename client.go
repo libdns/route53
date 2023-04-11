@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -49,10 +49,103 @@ func (p *Provider) init(ctx context.Context) {
 	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("unable to load AWS SDK config, %v", err)
 	}
 
 	p.client = r53.NewFromConfig(cfg)
+}
+
+func chunkString(s string, chunkSize int) []string {
+	var chunks []string
+	for i := 0; i < len(s); i += chunkSize {
+		end := i + chunkSize
+		if end > len(s) {
+			end = len(s)
+		}
+		chunks = append(chunks, s[i:end])
+	}
+	return chunks
+}
+
+func parseRecordSet(set types.ResourceRecordSet) []libdns.Record {
+	records := make([]libdns.Record, 0)
+
+	// Route53 returns TXT & SPF records with quotes around them.
+	// https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#TXTFormat
+	var ttl int64
+	if set.TTL != nil {
+		ttl = *set.TTL
+	}
+
+	rtype := string(set.Type)
+	for _, record := range set.ResourceRecords {
+		value := *record.Value
+		switch rtype {
+		case "TXT", "SPF":
+			rows := strings.Split(value, "\n")
+			for i, row := range rows {
+				parts := strings.Split(row, `" "`)
+				if len(parts) > 0 {
+					parts[0] = strings.TrimPrefix(parts[0], `"`)
+					parts[len(parts)-1] = strings.TrimSuffix(parts[len(parts)-1], `"`)
+				}
+
+				// Join parts
+				row = strings.Join(parts, "")
+				row = unquote(row)
+				rows[i] = row
+
+				records = append(records, libdns.Record{
+					Name:  *set.Name,
+					Value: row,
+					Type:  rtype,
+					TTL:   time.Duration(ttl) * time.Second,
+				})
+			}
+		default:
+			records = append(records, libdns.Record{
+				Name:  *set.Name,
+				Value: value,
+				Type:  rtype,
+				TTL:   time.Duration(ttl) * time.Second,
+			})
+		}
+
+	}
+
+	return records
+}
+
+func marshalRecord(record libdns.Record) []types.ResourceRecord {
+	resourceRecords := make([]types.ResourceRecord, 0)
+
+	// Route53 requires TXT & SPF records to be quoted.
+	// https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#TXTFormat
+	switch record.Type {
+	case "TXT", "SPF":
+		strs := make([]string, 0)
+		if len(record.Value) > 255 {
+			strs = append(strs, chunkString(record.Value, 255)...)
+		} else {
+			strs = append(strs, record.Value)
+		}
+
+		// Quote strings
+		for i, str := range strs {
+			strs[i] = quote(str)
+		}
+
+		// Finally join chunks with spaces
+		resourceRecords = append(resourceRecords, types.ResourceRecord{
+			Value: aws.String(strings.Join(strs, " ")),
+		})
+	default:
+		resourceRecords = append(resourceRecords, types.ResourceRecord{
+			Value: aws.String(record.Value),
+		})
+	}
+
+	return resourceRecords
 }
 
 func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
@@ -79,37 +172,16 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 		}
 
 		recordSets = append(recordSets, getRecordResult.ResourceRecordSets...)
+		for _, s := range recordSets {
+			records = append(records, parseRecordSet(s)...)
+		}
+
 		if getRecordResult.IsTruncated {
 			getRecordsInput.StartRecordName = getRecordResult.NextRecordName
 			getRecordsInput.StartRecordType = getRecordResult.NextRecordType
 			getRecordsInput.StartRecordIdentifier = getRecordResult.NextRecordIdentifier
 		} else {
 			break
-		}
-	}
-
-	for _, rrset := range recordSets {
-		for _, rrsetRecord := range rrset.ResourceRecords {
-			rtype := rrset.Type
-			value := *rrsetRecord.Value
-			// Route53 returns TXT & SPF records with quotes around them.
-			// https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#TXTFormat
-			switch rtype {
-			case types.RRTypeTxt, types.RRTypeSpf:
-				var err error
-				value, err = strconv.Unquote(value)
-				if err != nil {
-					return records, fmt.Errorf("Error unquoting TXT/SPF record: %s", err)
-				}
-			}
-			record := libdns.Record{
-				Name:  *rrset.Name,
-				Value: value,
-				Type:  string(rtype),
-				TTL:   time.Duration(*rrset.TTL) * time.Second,
-			}
-
-			records = append(records, record)
 		}
 	}
 
@@ -170,24 +242,19 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 	switch record.Type {
 	case "TXT":
 		return p.updateRecord(ctx, zoneID, record, zone)
-	case "SPF":
-		record.Value = strconv.Quote(record.Value)
 	}
 
+	resourceRecords := marshalRecord(record)
 	createInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
 			Changes: []types.Change{
 				{
 					Action: types.ChangeActionCreate,
 					ResourceRecordSet: &types.ResourceRecordSet{
-						Name: aws.String(libdns.AbsoluteName(record.Name, zone)),
-						ResourceRecords: []types.ResourceRecord{
-							{
-								Value: aws.String(record.Value),
-							},
-						},
-						TTL:  aws.Int64(int64(record.TTL.Seconds())),
-						Type: types.RRType(record.Type),
+						Name:            aws.String(libdns.AbsoluteName(record.Name, zone)),
+						ResourceRecords: resourceRecords,
+						TTL:             aws.Int64(int64(record.TTL.Seconds())),
+						Type:            types.RRType(record.Type),
 					},
 				},
 			},
@@ -206,12 +273,6 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	resourceRecords := make([]types.ResourceRecord, 0)
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
-	switch record.Type {
-	case "SPF", "TXT":
-		resourceRecords = append(resourceRecords, types.ResourceRecord{
-			Value: aws.String(strconv.Quote(record.Value)),
-		})
-	}
 	if record.Type == "TXT" {
 		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.Name)
 		if err != nil {
@@ -219,13 +280,12 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 		}
 		for _, r := range txtRecords {
 			if record.Value != r.Value {
-				resourceRecords = append(resourceRecords, types.ResourceRecord{
-					Value: aws.String(strconv.Quote(r.Value)),
-				})
+				resourceRecords = append(resourceRecords, marshalRecord(r)...)
 			}
 		}
 	}
 
+	resourceRecords = append(resourceRecords, marshalRecord(record)...)
 	updateInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
 			Changes: []types.Change{
@@ -255,28 +315,24 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 	action := types.ChangeActionDelete
 	resourceRecords := make([]types.ResourceRecord, 0)
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
-	switch record.Type {
-	case "SPF", "TXT":
-		resourceRecords = append(resourceRecords, types.ResourceRecord{
-			Value: aws.String(strconv.Quote(record.Value)),
-		})
-	}
 	if record.Type == "TXT" {
 		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.Name)
 		if err != nil {
 			return record, err
 		}
+
 		switch {
-		case len(txtRecords) > 0 && txtRecords[0].Value != record.Value,
-			len(txtRecords) > 1:
+		// If there is only one record, we can delete the entire record set.
+		case len(txtRecords) == 1:
+			resourceRecords = append(resourceRecords, marshalRecord(record)...)
+		// If there are multiple records, we need to upsert the remaining records.
+		case len(txtRecords) > 1:
 			action = types.ChangeActionUpsert
 			resourceRecords = make([]types.ResourceRecord, 0)
-		}
-		for _, r := range txtRecords {
-			if record.Value != r.Value {
-				resourceRecords = append(resourceRecords, types.ResourceRecord{
-					Value: aws.String(strconv.Quote(r.Value)),
-				})
+			for _, r := range txtRecords {
+				if record.Value != r.Value {
+					resourceRecords = append(resourceRecords, marshalRecord(r)...)
+				}
 			}
 		}
 	}
