@@ -26,28 +26,42 @@ func (p *Provider) init(ctx context.Context) {
 	if p.MaxRetries == 0 {
 		p.MaxRetries = 5
 	}
-	if p.Region == "" {
-		p.Region = "us-east-1"
-	}
 	if p.MaxWaitDur == 0 {
 		p.MaxWaitDur = time.Minute
 	}
 
 	opts := make([]func(*config.LoadOptions) error, 0)
 	opts = append(opts,
-		config.WithSharedConfigProfile(p.AWSProfile),
-		config.WithRegion(p.Region),
 		config.WithRetryer(func() aws.Retryer {
 			return retry.AddWithMaxAttempts(retry.NewStandard(), p.MaxRetries)
 		}),
 	)
+
+	profile := p.Profile
+	if profile == "" {
+		profile = p.AWSProfile
+	}
+
+	if profile != "" {
+		opts = append(opts, config.WithSharedConfigProfile(profile))
+	}
+
+	if p.Region != "" {
+		opts = append(opts, config.WithRegion(p.Region))
+	}
+
 	if p.AccessKeyId != "" && p.SecretAccessKey != "" {
+		token := p.SessionToken
+		if token == "" {
+			token = p.Token
+		}
+
 		opts = append(opts,
-			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(p.AccessKeyId, p.SecretAccessKey, p.Token)),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(p.AccessKeyId, p.SecretAccessKey, token)),
 		)
 	}
-	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		log.Fatalf("unable to load AWS SDK config, %v", err)
 	}
