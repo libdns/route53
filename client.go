@@ -155,7 +155,6 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 	}
 
 	var records []libdns.Record
-	var recordSets []types.ResourceRecordSet
 
 	for {
 		getRecordResult, err := p.client.ListResourceRecordSets(ctx, getRecordsInput)
@@ -171,8 +170,7 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 			}
 		}
 
-		recordSets = append(recordSets, getRecordResult.ResourceRecordSets...)
-		for _, s := range recordSets {
+		for _, s := range getRecordResult.ResourceRecordSets {
 			records = append(records, parseRecordSet(s)...)
 		}
 
