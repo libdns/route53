@@ -41,22 +41,21 @@ func unquote(s string) string {
 			if s[i+1] == '"' {
 				sb.WriteRune('"')
 				i++
+				continue
 			} else if s[i+1] == '\\' {
 				sb.WriteRune('\\')
 				i++
+				continue
 			} else if s[i+1] >= '0' && s[i+1] <= '7' && len(s) > i+3 {
 				octal, err := strconv.ParseInt(s[i+1:i+4], 8, 32)
 				if err == nil {
 					sb.WriteRune(rune(octal))
 					i += 3
+					continue
 				}
-			} else {
-				sb.WriteRune(c)
 			}
-			continue
-		} else {
-			sb.WriteRune(c)
 		}
+		sb.WriteRune(c)
 	}
 
 	return strings.Trim(sb.String(), `"`)
