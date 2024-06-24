@@ -8,17 +8,56 @@ import (
 	"github.com/libdns/libdns"
 )
 
-// Provider implements the libdns interfaces for Route53
+// Provider implements the libdns interfaces for Route53.
+//
+// By default, the provider loads the AWS configuration from the environment.
+// To override these values, set the fields in the Provider struct.
 type Provider struct {
-	MaxRetries         int           `json:"max_retries,omitempty"`
-	MaxWaitDur         time.Duration `json:"max_wait_dur,omitempty"`
-	WaitForPropagation bool          `json:"wait_for_propagation,omitempty"`
-	Region             string        `json:"region,omitempty"`
-	AWSProfile         string        `json:"aws_profile,omitempty"`
-	AccessKeyId        string        `json:"access_key_id,omitempty"`
-	SecretAccessKey    string        `json:"secret_access_key,omitempty"`
-	Token              string        `json:"token,omitempty"`
-	client             *r53.Client
+	client *r53.Client
+
+	// Region is the AWS Region to use. If not set, it will use AWS_REGION
+	// environment variable.
+	Region string `json:"region,omitempty"`
+
+	// AWSProfile is the AWS Profile to use. If not set, it will use
+	// AWS_PROFILE environment variable.
+	//
+	// Deprecated: Use Profile instead
+	AWSProfile string `json:"aws_profile,omitempty"`
+
+	// AWSProfile is the AWS Profile to use. If not set, it will use
+	// AWS_PROFILE environment variable.
+	Profile string `json:"profile,omitempty"`
+
+	// AccessKeyId is the AWS Access Key ID to use. If not set, it will use
+	// AWS_ACCESS_KEY_ID
+	AccessKeyId string `json:"access_key_id,omitempty"`
+
+	// SecretAccessKey is the AWS Secret Access Key to use. If not set, it will use
+	// AWS_SECRET_ACCESS_KEY environment variable.
+	SecretAccessKey string `json:"secret_access_key,omitempty"`
+
+	// Token is the AWS Session Token to use. If not set, it will use
+	// AWS_SESSION_TOKEN environment variable.
+	//
+	// Deprecated: Use SessionToken instead.
+	Token string `json:"token,omitempty"`
+
+	// SessionToken is the AWS Session Token to use. If not set, it will use
+	// AWS_SESSION_TOKEN environment variable.
+	SessionToken string `json:"session_token,omitempty"`
+
+	// MaxRetries is the maximum number of retries to make when a request
+	// fails. If not set, it will use 5 retries.
+	MaxRetries int `json:"max_retries,omitempty"`
+
+	// MaxWaitDur is the maximum amount of time to wait for a record to be
+	// propagated. If not set, it will use 1 minutes.
+	MaxWaitDur time.Duration `json:"max_wait_dur,omitempty"`
+
+	// WaitForPropagation if set to true, it will wait for the record to be
+	// propagated before returning.
+	WaitForPropagation bool `json:"wait_for_propagation,omitempty"`
 }
 
 // GetRecords lists all the records in the zone.
