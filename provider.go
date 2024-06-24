@@ -8,19 +8,12 @@ import (
 	"github.com/libdns/libdns"
 )
 
-// Provider implements the libdns interfaces for Route53
+// Provider implements the libdns interfaces for Route53.
+//
+// By default, the provider loads the AWS configuration from the environment.
+// To override these values, set the fields in the Provider struct.
 type Provider struct {
-	// MaxRetries is the maximum number of retries to make when a request
-	// fails.
-	MaxRetries int `json:"max_retries,omitempty"`
-
-	// MaxWaitDur is the maximum amount of time to wait for a record to be
-	// propagated.
-	MaxWaitDur time.Duration `json:"max_wait_dur,omitempty"`
-
-	// WaitForPropagation if set to true, it will wait for the record to be
-	// propagated before returning.
-	WaitForPropagation bool `json:"wait_for_propagation,omitempty"`
+	client *r53.Client
 
 	// Region is the AWS Region to use. If not set, it will use AWS_REGION
 	// environment variable.
@@ -54,7 +47,17 @@ type Provider struct {
 	// AWS_SESSION_TOKEN environment variable.
 	SessionToken string `json:"session_token,omitempty"`
 
-	client *r53.Client
+	// MaxRetries is the maximum number of retries to make when a request
+	// fails. If not set, it will use 5 retries.
+	MaxRetries int `json:"max_retries,omitempty"`
+
+	// MaxWaitDur is the maximum amount of time to wait for a record to be
+	// propagated. If not set, it will use 1 minutes.
+	MaxWaitDur time.Duration `json:"max_wait_dur,omitempty"`
+
+	// WaitForPropagation if set to true, it will wait for the record to be
+	// propagated before returning.
+	WaitForPropagation bool `json:"wait_for_propagation,omitempty"`
 }
 
 // GetRecords lists all the records in the zone.

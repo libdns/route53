@@ -162,7 +162,7 @@ func marshalRecord(record libdns.Record) []types.ResourceRecord {
 	return resourceRecords
 }
 
-func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
+func (p *Provider) getRecords(ctx context.Context, zoneID string, _ string) ([]libdns.Record, error) {
 	getRecordsInput := &r53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		MaxItems:     aws.Int32(1000),
