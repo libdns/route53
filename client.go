@@ -201,6 +201,10 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, _ string) ([]l
 }
 
 func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, error) {
+	if p.HostedZoneID != "" {
+		return p.HostedZoneID, nil
+	}
+
 	getZoneInput := &r53.ListHostedZonesByNameInput{
 		DNSName:  aws.String(zoneName),
 		MaxItems: aws.Int32(1),
