@@ -202,7 +202,7 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, _ string) ([]l
 
 func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, error) {
 	if p.HostedZoneID != "" {
-		return p.HostedZoneID, nil
+		return "/hostedzone/" + p.HostedZoneID, nil
 	}
 
 	getZoneInput := &r53.ListHostedZonesByNameInput{

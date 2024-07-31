@@ -62,7 +62,8 @@ type Provider struct {
 	// HostedZoneID is the ID of the hosted zone to use. If not set, it will
 	// be discovered from the zone name.
 	//
-	// It must be in the format "/hostedzone/Z01111111111111111111".
+	// This option should contain only the ID; the "/hostedzone/" prefix
+	// will be added automatically.
 	HostedZoneID string `json:"hosted_zone_id,omitempty"`
 }
 
