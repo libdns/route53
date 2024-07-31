@@ -58,6 +58,29 @@ type Provider struct {
 	// WaitForPropagation if set to true, it will wait for the record to be
 	// propagated before returning.
 	WaitForPropagation bool `json:"wait_for_propagation,omitempty"`
+
+	// WaitForDeletePropagation enables not to wait for propogation when cleaning challenge records
+	// 0 (default) will use WaitForPropagation's value (for backwards compatibility)
+	// 1 will always wait, 2 will never wait
+	WaitForDeletePropagation waitForDeletePropagationOption `json:"wait_for_delete_propogation,omitempty"`
+}
+
+type waitForDeletePropagationOption int
+
+const (
+	AlwaysWaitForDeletePropagation waitForDeletePropagationOption = 1
+	NeverWaitForDeletePropagation  waitForDeletePropagationOption = 2
+)
+
+func (p *Provider) shouldWaitForDeletePropagation() bool {
+	switch p.WaitForDeletePropagation {
+	case AlwaysWaitForDeletePropagation:
+		return true
+	case NeverWaitForDeletePropagation:
+		return false
+	default:
+		return p.WaitForPropagation
+	}
 }
 
 // GetRecords lists all the records in the zone.

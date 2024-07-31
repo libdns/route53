@@ -274,9 +274,16 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 		HostedZoneId: aws.String(zoneID),
 	}
 
-	err := p.applyChange(ctx, createInput)
+	changeId, err := p.applyChange(ctx, createInput)
 	if err != nil {
 		return record, err
+	}
+
+	if p.WaitForPropagation {
+		err = p.waitForChangeToPropagate(ctx, changeId)
+		if err != nil {
+			return record, err
+		}
 	}
 
 	return record, nil
@@ -315,9 +322,16 @@ func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdn
 		HostedZoneId: aws.String(zoneID),
 	}
 
-	err := p.applyChange(ctx, updateInput)
+	changeId, err := p.applyChange(ctx, updateInput)
 	if err != nil {
 		return record, err
+	}
+
+	if p.WaitForPropagation {
+		err = p.waitForChangeToPropagate(ctx, changeId)
+		if err != nil {
+			return record, err
+		}
 	}
 
 	return record, nil
@@ -366,7 +380,7 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 		HostedZoneId: aws.String(zoneID),
 	}
 
-	err := p.applyChange(ctx, deleteInput)
+	changeId, err := p.applyChange(ctx, deleteInput)
 	if err != nil {
 		var nfe *types.InvalidChangeBatch
 		if record.Type == "TXT" && errors.As(err, &nfe) {
@@ -375,27 +389,35 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 		return record, err
 	}
 
+	if p.shouldWaitForDeletePropagation() {
+		err = p.waitForChangeToPropagate(ctx, changeId)
+		if err != nil {
+			return record, err
+		}
+	}
+
 	return record, nil
 }
 
-func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRecordSetsInput) error {
+func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRecordSetsInput) (*string, error) {
 	changeResult, err := p.client.ChangeResourceRecordSets(ctx, input)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Waiting for propagation if it's set in the provider config.
-	if p.WaitForPropagation {
-		changeInput := &r53.GetChangeInput{
-			Id: changeResult.ChangeInfo.Id,
-		}
+	return changeResult.ChangeInfo.Id, nil
+}
 
-		// Wait for the RecordSetChange status to be "INSYNC"
-		waiter := r53.NewResourceRecordSetsChangedWaiter(p.client)
-		err = waiter.Wait(ctx, changeInput, p.MaxWaitDur)
-		if err != nil {
-			return err
-		}
+func (p *Provider) waitForChangeToPropagate(ctx context.Context, changeID *string) error {
+	changeInput := &r53.GetChangeInput{
+		Id: changeID,
+	}
+
+	// Wait for the RecordSetChange status to be "INSYNC"
+	waiter := r53.NewResourceRecordSetsChangedWaiter(p.client)
+	err := waiter.Wait(ctx, changeInput, p.MaxWaitDur)
+	if err != nil {
+		return err
 	}
 
 	return nil
