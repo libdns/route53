@@ -58,6 +58,13 @@ type Provider struct {
 	// WaitForPropagation if set to true, it will wait for the record to be
 	// propagated before returning.
 	WaitForPropagation bool `json:"wait_for_propagation,omitempty"`
+
+	// HostedZoneID is the ID of the hosted zone to use. If not set, it will
+	// be discovered from the zone name.
+	//
+	// This option should contain only the ID; the "/hostedzone/" prefix
+	// will be added automatically.
+	HostedZoneID string `json:"hosted_zone_id,omitempty"`
 }
 
 // GetRecords lists all the records in the zone.
