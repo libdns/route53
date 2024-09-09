@@ -1,7 +1,9 @@
 package route53
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
@@ -335,6 +337,36 @@ func TestMarshalRecord(t *testing.T) {
 				if *record.Value != *c.expected[i].Value {
 					t.Errorf("expected value %s, got %s", *c.expected[i].Value, *record.Value)
 				}
+			}
+		})
+	}
+}
+
+func TestMaxWaitDur(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    time.Duration
+		expected time.Duration
+	}{
+		{
+			name:     "default",
+			input:    0,
+			expected: 60 * time.Second,
+		},
+		{
+			name:     "custom",
+			input:    120,
+			expected: 120 * time.Second,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			provider := Provider{MaxWaitDur: c.input}
+			provider.init(context.TODO())
+			actual := provider.MaxWaitDur
+			if actual != c.expected {
+				t.Errorf("expected %d, got %d", c.expected, actual)
 			}
 		})
 	}

@@ -51,8 +51,8 @@ type Provider struct {
 	// fails. If not set, it will use 5 retries.
 	MaxRetries int `json:"max_retries,omitempty"`
 
-	// MaxWaitDur is the maximum amount of time to wait for a record to be
-	// propagated. If not set, it will use 1 minutes.
+	// MaxWaitDur is the maximum amount of time in seconds to wait for a record
+	// to be propagated. If not set, it will 1 minute.
 	MaxWaitDur time.Duration `json:"max_wait_dur,omitempty"`
 
 	// WaitForPropagation if set to true, it will wait for the record to be

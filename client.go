@@ -26,6 +26,8 @@ func (p *Provider) init(ctx context.Context) {
 	if p.MaxRetries == 0 {
 		p.MaxRetries = 5
 	}
+
+	p.MaxWaitDur *= time.Second
 	if p.MaxWaitDur == 0 {
 		p.MaxWaitDur = time.Minute
 	}
