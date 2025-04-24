@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.27.27
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.27
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.42.3
-	github.com/libdns/libdns v0.2.2
+	github.com/libdns/libdns v1.0.0-beta.1
 )
 
 require (
