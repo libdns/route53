@@ -90,7 +90,7 @@ func TestParseRecordSet(t *testing.T) {
 	cases := []struct {
 		name     string
 		input    types.ResourceRecordSet
-		expected []libdns.Record
+		expected []libdns.RR
 	}{
 		{
 			name: "A record",
@@ -103,11 +103,11 @@ func TestParseRecordSet(t *testing.T) {
 					},
 				},
 			},
-			expected: []libdns.Record{
+			expected: []libdns.RR{
 				{
-					Type:  "A",
-					Name:  "",
-					Value: "127.0.0.1",
+					Type: "A",
+					Name: "",
+					Data: "127.0.0.1",
 				},
 			},
 		},
@@ -122,11 +122,11 @@ func TestParseRecordSet(t *testing.T) {
 					},
 				},
 			},
-			expected: []libdns.Record{
+			expected: []libdns.RR{
 				{
-					Type:  "CNAME",
-					Name:  "*",
-					Value: "example.com",
+					Type: "CNAME",
+					Name: "*",
+					Data: "example.com",
 				},
 			},
 		},
@@ -150,26 +150,26 @@ func TestParseRecordSet(t *testing.T) {
 					},
 				},
 			},
-			expected: []libdns.Record{
+			expected: []libdns.RR{
 				{
-					Type:  "TXT",
-					Name:  "test",
-					Value: `This string includes "quotation marks".`,
+					Type: "TXT",
+					Name: "test",
+					Data: `This string includes "quotation marks".`,
 				},
 				{
-					Type:  "TXT",
-					Name:  "test",
-					Value: `This string includes \backslashes\`,
+					Type: "TXT",
+					Name: "test",
+					Data: `This string includes \backslashes\`,
 				},
 				{
-					Type:  "TXT",
-					Name:  "test",
-					Value: `The last character in this string is an accented e specified in octal format: é`,
+					Type: "TXT",
+					Name: "test",
+					Data: `The last character in this string is an accented e specified in octal format: é`,
 				},
 				{
-					Type:  "TXT",
-					Name:  "test",
-					Value: `String 1String 2String 3`,
+					Type: "TXT",
+					Name: "test",
+					Data: `String 1String 2String 3`,
 				},
 			},
 		},
@@ -184,11 +184,11 @@ func TestParseRecordSet(t *testing.T) {
 					},
 				},
 			},
-			expected: []libdns.Record{
+			expected: []libdns.RR{
 				{
-					Type:  "TXT",
-					Name:  "_testlong",
-					Value: "3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bxvJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYdhuw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr",
+					Type: "TXT",
+					Name: "_testlong",
+					Data: "3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bxvJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYdhuw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr",
 				},
 			},
 		},
@@ -201,14 +201,14 @@ func TestParseRecordSet(t *testing.T) {
 				t.Errorf("expected %d records, got %d", len(c.expected), len(actual))
 			}
 			for i, record := range actual {
-				if record.Type != c.expected[i].Type {
-					t.Errorf("expected type %s, got %s", c.expected[i].Type, record.Type)
+				if record.RR().Type != c.expected[i].Type {
+					t.Errorf("expected type %s, got %s", c.expected[i].Type, record.RR().Type)
 				}
-				if record.Name != c.expected[i].Name {
-					t.Errorf("expected name %s, got %s", c.expected[i].Name, record.Name)
+				if record.RR().Name != c.expected[i].Name {
+					t.Errorf("expected name %s, got %s", c.expected[i].Name, record.RR().Name)
 				}
-				if record.Value != c.expected[i].Value {
-					t.Errorf("expected value %s, got %s", c.expected[i].Value, record.Value)
+				if record.RR().Data != c.expected[i].Data {
+					t.Errorf("expected value %s, got %s", c.expected[i].Data, record.RR().Data)
 				}
 			}
 		})
@@ -218,15 +218,15 @@ func TestParseRecordSet(t *testing.T) {
 func TestMarshalRecord(t *testing.T) {
 	cases := []struct {
 		name     string
-		input    libdns.Record
+		input    libdns.RR
 		expected []types.ResourceRecord
 	}{
 		{
 			name: "A record",
-			input: libdns.Record{
-				Type:  "A",
-				Name:  "",
-				Value: "127.0.0.1",
+			input: libdns.RR{
+				Type: "A",
+				Name: "",
+				Data: "127.0.0.1",
 			},
 			expected: []types.ResourceRecord{
 				{
@@ -236,10 +236,10 @@ func TestMarshalRecord(t *testing.T) {
 		},
 		{
 			name: "A record with name",
-			input: libdns.Record{
-				Type:  "A",
-				Name:  "test",
-				Value: "127.0.0.1",
+			input: libdns.RR{
+				Type: "A",
+				Name: "test",
+				Data: "127.0.0.1",
 			},
 			expected: []types.ResourceRecord{
 				{
@@ -249,10 +249,10 @@ func TestMarshalRecord(t *testing.T) {
 		},
 		{
 			name: "TXT record",
-			input: libdns.Record{
-				Type:  "TXT",
-				Name:  "",
-				Value: "test",
+			input: libdns.RR{
+				Type: "TXT",
+				Name: "",
+				Data: "test",
 			},
 			expected: []types.ResourceRecord{
 				{
@@ -262,10 +262,10 @@ func TestMarshalRecord(t *testing.T) {
 		},
 		{
 			name: "TXT record with name",
-			input: libdns.Record{
-				Type:  "TXT",
-				Name:  "test",
-				Value: "test",
+			input: libdns.RR{
+				Type: "TXT",
+				Name: "test",
+				Data: "test",
 			},
 			expected: []types.ResourceRecord{
 				{
@@ -275,10 +275,10 @@ func TestMarshalRecord(t *testing.T) {
 		},
 		{
 			name: "TXT record with long value",
-			input: libdns.Record{
-				Type:  "TXT",
-				Name:  "test",
-				Value: `3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bxvJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYdhuw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr`,
+			input: libdns.RR{
+				Type: "TXT",
+				Name: "test",
+				Data: `3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bxvJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYdhuw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr`,
 			},
 			expected: []types.ResourceRecord{
 				{
@@ -288,10 +288,10 @@ func TestMarshalRecord(t *testing.T) {
 		},
 		{
 			name: "TXT record with a special character",
-			input: libdns.Record{
-				Type:  "TXT",
-				Name:  "test",
-				Value: `test é`,
+			input: libdns.RR{
+				Type: "TXT",
+				Name: "test",
+				Data: `test é`,
 			},
 			expected: []types.ResourceRecord{
 				{
@@ -301,10 +301,10 @@ func TestMarshalRecord(t *testing.T) {
 		},
 		{
 			name: "TXT record with quotes",
-			input: libdns.Record{
-				Type:  "TXT",
-				Name:  "test",
-				Value: `"test"`,
+			input: libdns.RR{
+				Type: "TXT",
+				Name: "test",
+				Data: `"test"`,
 			},
 			expected: []types.ResourceRecord{
 				{
@@ -314,10 +314,10 @@ func TestMarshalRecord(t *testing.T) {
 		},
 		{
 			name: "TXT record with backslashes",
-			input: libdns.Record{
-				Type:  "TXT",
-				Name:  "test",
-				Value: `\test\`,
+			input: libdns.RR{
+				Type: "TXT",
+				Name: "test",
+				Data: `\test\`,
 			},
 			expected: []types.ResourceRecord{
 				{
