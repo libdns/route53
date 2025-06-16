@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -110,13 +111,40 @@ func parseRecordSet(set types.ResourceRecordSet) []libdns.Record {
 				row = strings.Join(parts, "")
 				row = unquote(row)
 				rows[i] = row
-				records = append(records, libdns.RR{
-					Name: *set.Name,
-					Data: row,
-					Type: rtype,
-					TTL:  time.Duration(ttl) * time.Second,
-				})
+				switch rtype {
+				case "TXT":
+					records = append(records, libdns.TXT{
+						Name: *set.Name,
+						Text: row,
+						TTL:  time.Duration(ttl) * time.Second,
+					})
+				case "SPF":
+					records = append(records, libdns.RR{
+						Name: *set.Name,
+						Data: row,
+						Type: rtype,
+						TTL:  time.Duration(ttl) * time.Second,
+					})
+				}
 			}
+		case "A", "AAAA":
+			records = append(records, libdns.Address{
+				Name: *set.Name,
+				IP:   netip.MustParseAddr(value),
+				TTL:  time.Duration(ttl) * time.Second,
+			})
+		case "CNAME":
+			records = append(records, libdns.CNAME{
+				Name:   *set.Name,
+				Target: value,
+				TTL:    time.Duration(ttl) * time.Second,
+			})
+		case "NS":
+			records = append(records, libdns.NS{
+				Name:   *set.Name,
+				Target: value,
+				TTL:    time.Duration(ttl) * time.Second,
+			})
 		default:
 			records = append(records, libdns.RR{
 				Name: *set.Name,
@@ -290,14 +318,15 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
 	resourceRecords := make([]types.ResourceRecord, 0)
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
-	if record.RR().Type == "TXT" {
-		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.RR().Name)
+	switch rr := record.(type) {
+	case libdns.TXT:
+		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, rr.Name)
 		if err != nil {
 			return record, err
 		}
 		for _, r := range txtRecords {
-			if record.RR().Data != r.Data {
-				resourceRecords = append(resourceRecords, marshalRecord(r)...)
+			if rr.Text != r.Text {
+				resourceRecords = append(resourceRecords, marshalRecord(r.RR())...)
 			}
 		}
 	}
@@ -332,8 +361,9 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 	action := types.ChangeActionDelete
 	resourceRecords := make([]types.ResourceRecord, 0)
 	// AWS Route53 TXT record value must be enclosed in quotation marks on update
-	if record.RR().Type == "TXT" {
-		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.RR().Name)
+	switch rr := record.(type) {
+	case libdns.TXT:
+		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, rr.Name)
 		if err != nil {
 			return record, err
 		}
@@ -347,8 +377,8 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 			action = types.ChangeActionUpsert
 			resourceRecords = make([]types.ResourceRecord, 0)
 			for _, r := range txtRecords {
-				if record.RR().Data != r.Data {
-					resourceRecords = append(resourceRecords, marshalRecord(r)...)
+				if record.RR().Data != r.Text {
+					resourceRecords = append(resourceRecords, marshalRecord(r.RR())...)
 				}
 			}
 		}
@@ -406,28 +436,29 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 	return nil
 }
 
-func (p *Provider) getTxtRecords(ctx context.Context, zoneID string, zone string) ([]libdns.RR, error) {
-	txtRecords := make([]libdns.RR, 0)
+func (p *Provider) getTxtRecords(ctx context.Context, zoneID string, zone string) ([]libdns.TXT, error) {
+	txtRecords := make([]libdns.TXT, 0)
 	records, err := p.getRecords(ctx, zoneID, zone)
 	if err != nil {
 		return nil, err
 	}
 	for _, r := range records {
-		if r.RR().Type == "TXT" {
-			txtRecords = append(txtRecords, r.RR())
+		switch rr := r.(type) {
+		case libdns.TXT:
+			txtRecords = append(txtRecords, rr)
 		}
 	}
 	return txtRecords, nil
 }
 
-func (p *Provider) getTxtRecordsFor(ctx context.Context, zoneID string, zone string, name string) ([]libdns.RR, error) {
+func (p *Provider) getTxtRecordsFor(ctx context.Context, zoneID string, zone string, name string) ([]libdns.TXT, error) {
 	txtRecords, err := p.getTxtRecords(ctx, zoneID, zone)
 	if err != nil {
 		return nil, err
 	}
-	records := make([]libdns.RR, 0)
+	records := make([]libdns.TXT, 0)
 	for _, r := range txtRecords {
-		if libdns.AbsoluteName(name, zone) == r.Name {
+		if libdns.AbsoluteName(name, zone) == r.RR().Name {
 			records = append(records, r)
 		}
 	}
