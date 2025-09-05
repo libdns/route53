@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/libdns/route53"
+	"github.com/jeremyforan/route53"
 )
 
 func main() {
@@ -14,6 +14,6 @@ func main() {
 		log.Fatalln(err)
 	}
 	for _, r := range rs {
-		log.Printf("type: %v, value: %v, ttl: %v", r.Type, r.Value, r.TTL)
+		log.Printf("type: %v, value: %v, ttl: %v", r.RR().Type, r.RR().Data, r.RR().TTL)
 	}
 }
