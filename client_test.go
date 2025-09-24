@@ -87,15 +87,16 @@ func TestTXTUnmarhalling(t *testing.T) {
 }
 
 func TestParseRecordSet(t *testing.T) {
+	testZone := "example.com."
 	cases := []struct {
 		name     string
 		input    types.ResourceRecordSet
 		expected []libdns.RR
 	}{
 		{
-			name: "A record",
+			name: "A record at zone apex",
 			input: types.ResourceRecordSet{
-				Name: aws.String(""),
+				Name: aws.String("example.com."),
 				Type: types.RRTypeA,
 				ResourceRecords: []types.ResourceRecord{
 					{
@@ -106,15 +107,15 @@ func TestParseRecordSet(t *testing.T) {
 			expected: []libdns.RR{
 				{
 					Type: "A",
-					Name: "",
+					Name: "@",
 					Data: "127.0.0.1",
 				},
 			},
 		},
 		{
-			name: "CNAME record",
+			name: "CNAME record with wildcard",
 			input: types.ResourceRecordSet{
-				Name: aws.String("*"),
+				Name: aws.String("*.example.com."),
 				Type: types.RRTypeCname,
 				ResourceRecords: []types.ResourceRecord{
 					{
@@ -133,7 +134,7 @@ func TestParseRecordSet(t *testing.T) {
 		{
 			name: "TXT record",
 			input: types.ResourceRecordSet{
-				Name: aws.String("test"),
+				Name: aws.String("test.example.com."),
 				Type: types.RRTypeTxt,
 				ResourceRecords: []types.ResourceRecord{
 					{
@@ -176,7 +177,7 @@ func TestParseRecordSet(t *testing.T) {
 		{
 			name: "TXT long record",
 			input: types.ResourceRecordSet{
-				Name: aws.String("_testlong"),
+				Name: aws.String("_testlong.example.com."),
 				Type: types.RRTypeTxt,
 				ResourceRecords: []types.ResourceRecord{
 					{
@@ -196,7 +197,10 @@ func TestParseRecordSet(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			actual := parseRecordSet(c.input)
+			actual, err := parseRecordSet(c.input, testZone)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
 			if len(actual) != len(c.expected) {
 				t.Errorf("expected %d records, got %d", len(c.expected), len(actual))
 			}

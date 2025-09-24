@@ -1,8 +1,6 @@
-module github.com/libdns/route53/examples
+module github.com/libdns/route53/libdnstest
 
 go 1.23
-
-replace github.com/libdns/route53 => ../
 
 require (
 	github.com/libdns/libdns v1.1.1
@@ -25,3 +23,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.19 // indirect
 	github.com/aws/smithy-go v1.22.3 // indirect
 )
+
+replace github.com/libdns/route53 => ../
+
+replace github.com/libdns/libdns => ../../libdns

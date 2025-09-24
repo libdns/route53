@@ -2,6 +2,7 @@ package route53
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	r53 "github.com/aws/aws-sdk-go-v2/service/route53"
@@ -93,14 +94,61 @@ func (p *Provider) AppendRecords(ctx context.Context, zone string, records []lib
 		return nil, err
 	}
 
+	// Group records by name+type since Route53 treats them as a single ResourceRecordSet
+	recordSets := make(map[string][]libdns.Record)
+	for _, record := range records {
+		rr := record.RR()
+		key := rr.Name + ":" + rr.Type
+		recordSets[key] = append(recordSets[key], record)
+	}
+
 	var createdRecords []libdns.Record
 
-	for _, record := range records {
-		newRecord, err := p.createRecord(ctx, zoneID, record, zone)
+	// Process each record set
+	for _, recordGroup := range recordSets {
+		if len(recordGroup) == 0 {
+			continue
+		}
+
+		// For groups with only one record, use the simple create
+		if len(recordGroup) == 1 {
+			newRecord, err := p.createRecord(ctx, zoneID, recordGroup[0], zone)
+			if err != nil {
+				return nil, err
+			}
+			createdRecords = append(createdRecords, newRecord)
+			continue
+		}
+
+		// For multiple records with same name+type, we need to create them all at once
+		// or append to existing set if it already exists
+		firstRecord := recordGroup[0]
+		rr := firstRecord.RR()
+
+		existingRecords, err := p.getRecords(ctx, zoneID, zone)
 		if err != nil {
 			return nil, err
 		}
-		createdRecords = append(createdRecords, newRecord)
+
+		var existingValues []libdns.Record
+		for _, existing := range existingRecords {
+			existingRR := existing.RR()
+			if existingRR.Name == libdns.AbsoluteName(rr.Name, zone) && existingRR.Type == rr.Type {
+				existingValues = append(existingValues, existing)
+			}
+		}
+
+		allRecords := append(existingValues, recordGroup...)
+
+		// Use UPSERT to set all values at once
+		created, err := p.setRecordSet(ctx, zoneID, zone, rr.Name, rr.Type, allRecords)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add only the new records to the result
+		createdRecords = append(createdRecords, recordGroup...)
+		_ = created // created contains all records, but we only return what was requested
 	}
 
 	return createdRecords, nil
@@ -116,14 +164,71 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, records []lib
 		return nil, err
 	}
 
+	existingRecords, err := p.getRecords(ctx, zoneID, zone)
+	if err != nil {
+		return nil, err
+	}
+
+	// Group records to delete by name+type
+	toDelete := make(map[string][]libdns.Record)
+	for _, record := range records {
+		rr := record.RR()
+		key := rr.Name + ":" + rr.Type
+		toDelete[key] = append(toDelete[key], record)
+	}
+
+	// For each name+type combination, find all existing values
+	// and determine what action to take
 	var deletedRecords []libdns.Record
 
-	for _, record := range records {
-		deletedRecord, err := p.deleteRecord(ctx, zoneID, record, zone)
-		if err != nil {
-			return nil, err
+	for key, deleteGroup := range toDelete {
+		parts := strings.SplitN(key, ":", 2)
+		if len(parts) != 2 {
+			continue
 		}
-		deletedRecords = append(deletedRecords, deletedRecord)
+		name, recordType := parts[0], parts[1]
+
+		var existingValues []libdns.Record
+		for _, existing := range existingRecords {
+			existingRR := existing.RR()
+			if existingRR.Name == name && existingRR.Type == recordType {
+				existingValues = append(existingValues, existing)
+			}
+		}
+
+		if len(existingValues) == 0 {
+			continue
+		}
+
+		deleteValues := make(map[string]bool)
+		for _, rec := range deleteGroup {
+			deleteValues[rec.RR().Data] = true
+		}
+
+		var remainingValues []libdns.Record
+		for _, existing := range existingValues {
+			if !deleteValues[existing.RR().Data] {
+				remainingValues = append(remainingValues, existing)
+			}
+		}
+
+		if len(remainingValues) == 0 {
+			err := p.deleteRecordSet(ctx, zoneID, zone, name, recordType, existingValues)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			_, err := p.setRecordSet(ctx, zoneID, zone, name, recordType, remainingValues)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		for _, existing := range existingValues {
+			if deleteValues[existing.RR().Data] {
+				deletedRecords = append(deletedRecords, existing)
+			}
+		}
 	}
 
 	return deletedRecords, nil

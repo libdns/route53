@@ -17,7 +17,79 @@ import (
 	"github.com/libdns/libdns"
 )
 
-// init initializes the AWS client
+func (p *Provider) setRecordSet(ctx context.Context, zoneID, zone, name, recordType string, records []libdns.Record) ([]libdns.Record, error) {
+	var resourceRecords []types.ResourceRecord
+	for _, record := range records {
+		rr := record.RR()
+		resourceRecords = append(resourceRecords, marshalRecord(rr)...)
+	}
+
+	// Use the TTL from the first record
+	ttl := int64(300) // default
+	if len(records) > 0 {
+		ttl = int64(records[0].RR().TTL.Seconds())
+	}
+
+	// Use UPSERT to replace the entire record set
+	input := &r53.ChangeResourceRecordSetsInput{
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{
+				{
+					Action: types.ChangeActionUpsert,
+					ResourceRecordSet: &types.ResourceRecordSet{
+						Name:            aws.String(libdns.AbsoluteName(name, zone)),
+						ResourceRecords: resourceRecords,
+						TTL:             aws.Int64(ttl),
+						Type:            types.RRType(recordType),
+					},
+				},
+			},
+		},
+		HostedZoneId: aws.String(zoneID),
+	}
+
+	err := p.applyChange(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return records, nil
+}
+
+func (p *Provider) deleteRecordSet(ctx context.Context, zoneID, zone, name, recordType string, records []libdns.Record) error {
+	var resourceRecords []types.ResourceRecord
+	for _, record := range records {
+		rr := record.RR()
+		resourceRecords = append(resourceRecords, marshalRecord(rr)...)
+	}
+
+	// Use the TTL from the first record
+	ttl := int64(300) // default
+	if len(records) > 0 {
+		ttl = int64(records[0].RR().TTL.Seconds())
+	}
+
+	// Use DELETE action to remove the entire record set
+	input := &r53.ChangeResourceRecordSetsInput{
+		ChangeBatch: &types.ChangeBatch{
+			Changes: []types.Change{
+				{
+					Action: types.ChangeActionDelete,
+					ResourceRecordSet: &types.ResourceRecordSet{
+						Name:            aws.String(libdns.AbsoluteName(name, zone)),
+						ResourceRecords: resourceRecords,
+						TTL:             aws.Int64(ttl),
+						Type:            types.RRType(recordType),
+					},
+				},
+			},
+		},
+		HostedZoneId: aws.String(zoneID),
+	}
+
+	return p.applyChange(ctx, input)
+}
+
 func (p *Provider) init(ctx context.Context) {
 	if p.client != nil {
 		return
@@ -83,7 +155,7 @@ func chunkString(s string, chunkSize int) []string {
 	return chunks
 }
 
-func parseRecordSet(set types.ResourceRecordSet) []libdns.Record {
+func parseRecordSet(set types.ResourceRecordSet, zone string) ([]libdns.Record, error) {
 	records := make([]libdns.Record, 0)
 
 	// Route53 returns TXT & SPF records with quotes around them.
@@ -94,41 +166,51 @@ func parseRecordSet(set types.ResourceRecordSet) []libdns.Record {
 	}
 
 	rtype := string(set.Type)
+	relativeName := libdns.RelativeName(*set.Name, zone)
+
 	for _, record := range set.ResourceRecords {
 		value := *record.Value
 		switch rtype {
 		case "TXT", "SPF":
 			rows := strings.Split(value, "\n")
-			for i, row := range rows {
+			for _, row := range rows {
 				parts := strings.Split(row, `" "`)
 				if len(parts) > 0 {
 					parts[0] = strings.TrimPrefix(parts[0], `"`)
 					parts[len(parts)-1] = strings.TrimSuffix(parts[len(parts)-1], `"`)
 				}
 
-				// Join parts
 				row = strings.Join(parts, "")
 				row = unquote(row)
-				rows[i] = row
-				records = append(records, libdns.RR{
-					Name: *set.Name,
+
+				rr := libdns.RR{
+					Name: relativeName,
 					Data: row,
 					Type: rtype,
 					TTL:  time.Duration(ttl) * time.Second,
-				})
+				}
+				parsedRecord, err := rr.Parse()
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse %s record %s: %w", rtype, relativeName, err)
+				}
+				records = append(records, parsedRecord)
 			}
 		default:
-			records = append(records, libdns.RR{
-				Name: *set.Name,
+			rr := libdns.RR{
+				Name: relativeName,
 				Data: value,
 				Type: rtype,
 				TTL:  time.Duration(ttl) * time.Second,
-			})
+			}
+			parsedRecord, err := rr.Parse()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse %s record %s: %w", rtype, relativeName, err)
+			}
+			records = append(records, parsedRecord)
 		}
-
 	}
 
-	return records
+	return records, nil
 }
 
 func marshalRecord(record libdns.RR) []types.ResourceRecord {
@@ -163,7 +245,7 @@ func marshalRecord(record libdns.RR) []types.ResourceRecord {
 	return resourceRecords
 }
 
-func (p *Provider) getRecords(ctx context.Context, zoneID string, _ string) ([]libdns.Record, error) {
+func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) ([]libdns.Record, error) {
 	getRecordsInput := &r53.ListResourceRecordSetsInput{
 		HostedZoneId: aws.String(zoneID),
 		MaxItems:     aws.Int32(1000),
@@ -186,7 +268,11 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, _ string) ([]l
 		}
 
 		for _, s := range getRecordResult.ResourceRecordSets {
-			records = append(records, parseRecordSet(s)...)
+			parsedRecords, err := parseRecordSet(s, zone)
+			if err != nil {
+				return records, fmt.Errorf("failed to parse record set: %w", err)
+			}
+			records = append(records, parsedRecords...)
 		}
 
 		if getRecordResult.IsTruncated {
@@ -255,12 +341,6 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 }
 
 func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
-	// AWS Route53 TXT record value must be enclosed in quotation marks on create
-	switch record.RR().Type {
-	case "TXT":
-		return p.updateRecord(ctx, zoneID, record.RR(), zone)
-	}
-
 	resourceRecords := marshalRecord(record.RR())
 	createInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
@@ -288,21 +368,10 @@ func (p *Provider) createRecord(ctx context.Context, zoneID string, record libdn
 }
 
 func (p *Provider) updateRecord(ctx context.Context, zoneID string, record libdns.Record, zone string) (libdns.Record, error) {
-	resourceRecords := make([]types.ResourceRecord, 0)
-	// AWS Route53 TXT record value must be enclosed in quotation marks on update
-	if record.RR().Type == "TXT" {
-		txtRecords, err := p.getTxtRecordsFor(ctx, zoneID, zone, record.RR().Name)
-		if err != nil {
-			return record, err
-		}
-		for _, r := range txtRecords {
-			if record.RR().Data != r.Data {
-				resourceRecords = append(resourceRecords, marshalRecord(r)...)
-			}
-		}
-	}
-
-	resourceRecords = append(resourceRecords, marshalRecord(record.RR())...)
+	// Route53's UPSERT replaces the entire ResourceRecordSet
+	// For TXT records with the same name, we might want to preserve other values
+	// But for libdns SetRecords, we should replace everything
+	resourceRecords := marshalRecord(record.RR())
 	updateInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
 			Changes: []types.Change{
@@ -352,6 +421,9 @@ func (p *Provider) deleteRecord(ctx context.Context, zoneID string, record libdn
 				}
 			}
 		}
+	} else {
+		// For non-TXT records, we need to include the record data
+		resourceRecords = append(resourceRecords, marshalRecord(record.RR())...)
 	}
 
 	deleteInput := &r53.ChangeResourceRecordSetsInput{
