@@ -1,4 +1,4 @@
-package main
+package route53_libdnstest_test
 
 import (
 	"os"

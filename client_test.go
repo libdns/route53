@@ -1,4 +1,4 @@
-package route53
+package route53 //nolint:testpackage // Testing internal functions
 
 import (
 	"context"
@@ -27,14 +27,19 @@ func TestTXTMarshalling(t *testing.T) {
 			expected: `"This string includes \\backslashes\\"`,
 		},
 		{
-			name:     "string with special characters",
+			name:     "string with special characters UTF-8",
 			input:    `The last character in this string is an accented e specified in octal format: é`,
-			expected: `"The last character in this string is an accented e specified in octal format: \351"`,
+			expected: `"The last character in this string is an accented e specified in octal format: \303\251"`,
 		},
 		{
 			name:     "simple",
 			input:    "v=spf1 ip4:192.168.0.1/16 -all",
 			expected: `"v=spf1 ip4:192.168.0.1/16 -all"`,
+		},
+		{
+			name:     "control characters",
+			input:    "test\x00\x1f\x7f",
+			expected: `"test\000\037\177"`,
 		},
 	}
 
@@ -42,7 +47,7 @@ func TestTXTMarshalling(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			actual := quote(c.input)
 			if actual != c.expected {
-				t.Errorf("expected %s, got %s", c.expected, actual)
+				t.Errorf("expected %q, got %q", c.expected, actual)
 			}
 		})
 	}
@@ -65,8 +70,8 @@ func TestTXTUnmarhalling(t *testing.T) {
 			expected: `This string includes \backslashes\`,
 		},
 		{
-			name:     "string with special characters",
-			input:    `"The last character in this string is an accented e specified in octal format: \351"`,
+			name:     "string with special characters UTF-8",
+			input:    `"The last character in this string is an accented e specified in octal format: \303\251"`,
 			expected: `The last character in this string is an accented e specified in octal format: é`,
 		},
 		{
@@ -74,19 +79,24 @@ func TestTXTUnmarhalling(t *testing.T) {
 			input:    `"v=spf1 ip4:192.168.0.1/16 -all"`,
 			expected: "v=spf1 ip4:192.168.0.1/16 -all",
 		},
+		{
+			name:     "control characters",
+			input:    `"test\000\037\177"`,
+			expected: "test\x00\x1f\x7f",
+		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			actual := unquote(c.input)
 			if actual != c.expected {
-				t.Errorf("expected %s, got %s", c.expected, actual)
+				t.Errorf("expected %q, got %q", c.expected, actual)
 			}
 		})
 	}
 }
 
-func TestParseRecordSet(t *testing.T) {
+func TestParseRecordSet(t *testing.T) { //nolint:gocognit // test complexity is acceptable
 	testZone := "example.com."
 	cases := []struct {
 		name     string
@@ -144,7 +154,9 @@ func TestParseRecordSet(t *testing.T) {
 						Value: aws.String(`"This string includes \\backslashes\\"`),
 					},
 					{
-						Value: aws.String(`"The last character in this string is an accented e specified in octal format: \351"`),
+						Value: aws.String(
+							`"The last character in this string is an accented e specified in octal format: \303\251"`,
+						),
 					},
 					{
 						Value: aws.String(`"String 1" "String 2" "String 3"`),
@@ -181,7 +193,9 @@ func TestParseRecordSet(t *testing.T) {
 				Type: types.RRTypeTxt,
 				ResourceRecords: []types.ResourceRecord{
 					{
-						Value: aws.String(`"3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bx" "vJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYdhuw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr"`),
+						Value: aws.String(
+							`"3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bx" "vJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYdhuw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr"`,
+						),
 					},
 				},
 			},
@@ -286,7 +300,9 @@ func TestMarshalRecord(t *testing.T) {
 			},
 			expected: []types.ResourceRecord{
 				{
-					Value: aws.String(`"3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bxvJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYd" "huw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr"`),
+					Value: aws.String(
+						`"3gImdrsMGi6MzHi2rMviVqvwJbv7tXDPk6JvUEI2Fnl7sRF1bUSjNIe4qnatzomDu368bV6Q45qItkF wwnYoGBXNu1uclGvlPIIcGQd6wqBPzTtv0P83brCXJ59RJNLnAif8a3EQuLy88GmblPq 42uJpHTeNYnDRLQt8WvhRCYySX6bxvJtK8TZJtVRFbCgUrziRgQVzLwV4fn2hitpnItt U3Ke9IE5 gcs1Obx9kG8wkQ9h4qIxKDLVsmYd" "huw4kdLmM2Qm6jJ3ZlSIaQWFP2eNLq5NwZfgATZiGRhr"`,
+					),
 				},
 			},
 		},
@@ -299,7 +315,7 @@ func TestMarshalRecord(t *testing.T) {
 			},
 			expected: []types.ResourceRecord{
 				{
-					Value: aws.String(`"test \351"`),
+					Value: aws.String(`"test \303\251"`),
 				},
 			},
 		},
