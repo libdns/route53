@@ -77,6 +77,31 @@ The following IAM policy is a minimal working example to give `libdns` permissio
 }
 ```
 
+### Running in Docker on EC2 with Instance Roles
+
+When running this provider in a Docker container on EC2 instances that use IAM instance roles, you need to ensure that the container can access the EC2 metadata service. By default, IMDSv2 (Instance Metadata Service Version 2) limits the hop count to 1, which prevents Docker containers from accessing the metadata service.
+
+Instances created through the AWS Console typically have a hop limit of 2 by default and won't have this issue. This configuration is usually needed for instances created programmatically or with older configurations.
+
+To enable Docker containers to use EC2 instance roles, configure the instance metadata options with an increased hop limit:
+
+```bash
+aws ec2 modify-instance-metadata-options \
+    --instance-id <instance-id> \
+    --http-put-response-hop-limit 2 \
+    --http-endpoint enabled
+```
+
+Or when launching an instance:
+
+```bash
+aws ec2 run-instances \
+    --metadata-options "HttpEndpoint=enabled,HttpPutResponseHopLimit=2" \
+    # ... other parameters
+```
+
+For more information, see the [AWS EC2 Instance Metadata Options documentation](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_InstanceMetadataOptionsRequest.html).
+
 ## Contributing
 
 Contributions are welcome! Please ensure that:
