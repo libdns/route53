@@ -102,6 +102,12 @@ aws ec2 run-instances \
 
 For more information, see the [AWS EC2 Instance Metadata Options documentation](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_InstanceMetadataOptionsRequest.html).
 
+## Note on propagation-related fields
+
+When you update records in AWS Route53, changes first propagate internally across AWS’s DNS servers before becoming visible to the public. This internal step usually finishes within seconds, but may take more in rare cases, and can be waited on when `WaitForPropagation` is enabled. *It is different from normal DNS propagation, which depends on TTL and external caching.*
+
+See [Change Propagation to Route 53 DNS Servers](https://docs.aws.amazon.com/Route53/latest/APIReference/API_ChangeResourceRecordSets.html#API_ChangeResourceRecordSets_RequestSyntax:~:text=Change%20Propagation%20to%20Route%2053%20DNS%20Servers).
+
 ## Contributing
 
 Contributions are welcome! Please ensure that:

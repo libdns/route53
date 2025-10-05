@@ -21,12 +21,6 @@ type Provider struct {
 
 	// AWSProfile is the AWS Profile to use. If not set, it will use
 	// AWS_PROFILE environment variable.
-	//
-	// Deprecated: Use Profile instead
-	AWSProfile string `json:"aws_profile,omitempty"`
-
-	// AWSProfile is the AWS Profile to use. If not set, it will use
-	// AWS_PROFILE environment variable.
 	Profile string `json:"profile,omitempty"`
 
 	// AccessKeyId is the AWS Access Key ID to use. If not set, it will use
@@ -37,12 +31,6 @@ type Provider struct {
 	// AWS_SECRET_ACCESS_KEY environment variable.
 	SecretAccessKey string `json:"secret_access_key,omitempty"`
 
-	// Token is the AWS Session Token to use. If not set, it will use
-	// AWS_SESSION_TOKEN environment variable.
-	//
-	// Deprecated: Use SessionToken instead.
-	Token string `json:"token,omitempty"`
-
 	// SessionToken is the AWS Session Token to use. If not set, it will use
 	// AWS_SESSION_TOKEN environment variable.
 	SessionToken string `json:"session_token,omitempty"`
@@ -51,15 +39,16 @@ type Provider struct {
 	// fails. If not set, it will use 5 retries.
 	MaxRetries int `json:"max_retries,omitempty"`
 
-	// MaxWaitDur is the maximum amount of time in seconds to wait for a record
-	// to be propagated. If not set, it will 1 minute.
-	MaxWaitDur time.Duration `json:"max_wait_dur,omitempty"`
+	// MaxWaitDuration is the maximum amount of time to wait for a record
+	// to be propagated within AWS infrastructure. Default is 1 minute.
+	MaxWaitDuration time.Duration `json:"max_wait_duration,omitempty"`
 
 	// WaitForPropagation if set to true, it will wait for the record to be
-	// propagated before returning.
+	// propagated within AWS infrastructure before returning. This is not related
+	// to DNS propagation, that could take much longer.
 	WaitForPropagation bool `json:"wait_for_propagation,omitempty"`
 
-	// hostedZoneID is the ID of the hosted zone to use. If not set, it will
+	// HostedZoneID is the ID of the hosted zone to use. If not set, it will
 	// be discovered from the zone name.
 	//
 	// This option should contain only the ID; the "/hostedzone/" prefix

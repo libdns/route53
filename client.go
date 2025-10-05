@@ -92,9 +92,8 @@ func (p *Provider) init(ctx context.Context) {
 		p.MaxRetries = 5
 	}
 
-	p.MaxWaitDur *= time.Second
-	if p.MaxWaitDur == 0 {
-		p.MaxWaitDur = time.Minute
+	if p.MaxWaitDuration == 0 {
+		p.MaxWaitDuration = time.Minute
 	}
 
 	opts := make([]func(*config.LoadOptions) error, 0)
@@ -105,9 +104,6 @@ func (p *Provider) init(ctx context.Context) {
 	)
 
 	profile := p.Profile
-	if profile == "" {
-		profile = p.AWSProfile
-	}
 
 	if profile != "" {
 		opts = append(opts, config.WithSharedConfigProfile(profile))
@@ -119,9 +115,6 @@ func (p *Provider) init(ctx context.Context) {
 
 	if p.AccessKeyId != "" && p.SecretAccessKey != "" {
 		token := p.SessionToken
-		if token == "" {
-			token = p.Token
-		}
 
 		opts = append(
 			opts,
@@ -407,7 +400,7 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 
 		// Wait for the RecordSetChange status to be "INSYNC"
 		waiter := r53.NewResourceRecordSetsChangedWaiter(p.client)
-		err = waiter.Wait(ctx, changeInput, p.MaxWaitDur)
+		err = waiter.Wait(ctx, changeInput, p.MaxWaitDuration)
 		if err != nil {
 			return err
 		}
