@@ -362,7 +362,7 @@ func TestMarshalRecord(t *testing.T) {
 	}
 }
 
-func TestMaxWaitDur(t *testing.T) {
+func TestRoute53MaxWait(t *testing.T) {
 	cases := []struct {
 		name     string
 		input    time.Duration
@@ -382,9 +382,9 @@ func TestMaxWaitDur(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			provider := Provider{MaxWaitDuration: c.input}
+			provider := Provider{Route53MaxWait: c.input}
 			provider.init(context.TODO())
-			actual := provider.MaxWaitDuration
+			actual := provider.Route53MaxWait
 			if actual != c.expected {
 				t.Errorf("expected %d, got %d", c.expected, actual)
 			}

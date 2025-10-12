@@ -3,6 +3,9 @@ Route53 for `libdns`
 
 [![godoc reference](https://img.shields.io/badge/godoc-reference-blue.svg)](https://pkg.go.dev/github.com/libdns/route53)
 
+> [!WARNING]
+> **Breaking changes in v1.6:** Field names have changed. See [BREAKING.md](BREAKING.md) for migration guide.
+
 This package implements the [libdns interfaces](https://github.com/libdns/libdns) for AWS [Route53](https://aws.amazon.com/route53/).
 
 ## Example
@@ -104,7 +107,7 @@ For more information, see the [AWS EC2 Instance Metadata Options documentation](
 
 ## Note on propagation-related fields
 
-When you update records in AWS Route53, changes first propagate internally across AWS’s DNS servers before becoming visible to the public. This internal step usually finishes within seconds, but may take more in rare cases, and can be waited on when `WaitForPropagation` is enabled. *It is different from normal DNS propagation, which depends on TTL and external caching.*
+When you update records in AWS Route53, changes first propagate internally across AWS's DNS servers before becoming visible to the public. This internal step usually finishes within seconds, but may take more in rare cases, and can be waited on when `WaitForRoute53Sync` is enabled. *It is different from normal DNS propagation, which depends on TTL and external caching.*
 
 See [Change Propagation to Route 53 DNS Servers](https://docs.aws.amazon.com/Route53/latest/APIReference/API_ChangeResourceRecordSets.html#API_ChangeResourceRecordSets_RequestSyntax:~:text=Change%20Propagation%20to%20Route%2053%20DNS%20Servers).
 

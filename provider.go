@@ -39,14 +39,14 @@ type Provider struct {
 	// fails. If not set, it will use 5 retries.
 	MaxRetries int `json:"max_retries,omitempty"`
 
-	// MaxWaitDuration is the maximum amount of time to wait for a record
+	// Route53MaxWait is the maximum amount of time to wait for a record
 	// to be propagated within AWS infrastructure. Default is 1 minute.
-	MaxWaitDuration time.Duration `json:"max_wait_duration,omitempty"`
+	Route53MaxWait time.Duration `json:"route53_max_wait,omitempty"`
 
-	// WaitForPropagation if set to true, it will wait for the record to be
+	// WaitForRoute53Sync if set to true, it will wait for the record to be
 	// propagated within AWS infrastructure before returning. This is not related
 	// to DNS propagation, that could take much longer.
-	WaitForPropagation bool `json:"wait_for_propagation,omitempty"`
+	WaitForRoute53Sync bool `json:"wait_for_route53_sync,omitempty"`
 
 	// HostedZoneID is the ID of the hosted zone to use. If not set, it will
 	// be discovered from the zone name.

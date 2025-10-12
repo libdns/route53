@@ -92,8 +92,8 @@ func (p *Provider) init(ctx context.Context) {
 		p.MaxRetries = 5
 	}
 
-	if p.MaxWaitDuration == 0 {
-		p.MaxWaitDuration = time.Minute
+	if p.Route53MaxWait == 0 {
+		p.Route53MaxWait = time.Minute
 	}
 
 	opts := make([]func(*config.LoadOptions) error, 0)
@@ -393,14 +393,14 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 	}
 
 	// Waiting for propagation if it's set in the provider config.
-	if p.WaitForPropagation {
+	if p.WaitForRoute53Sync {
 		changeInput := &r53.GetChangeInput{
 			Id: changeResult.ChangeInfo.Id,
 		}
 
 		// Wait for the RecordSetChange status to be "INSYNC"
 		waiter := r53.NewResourceRecordSetsChangedWaiter(p.client)
-		err = waiter.Wait(ctx, changeInput, p.MaxWaitDuration)
+		err = waiter.Wait(ctx, changeInput, p.Route53MaxWait)
 		if err != nil {
 			return err
 		}
