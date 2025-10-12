@@ -48,6 +48,11 @@ type Provider struct {
 	// to DNS propagation, that could take much longer.
 	WaitForRoute53Sync bool `json:"wait_for_route53_sync,omitempty"`
 
+	// SkipRoute53SyncOnDelete if set to true, it will skip waiting for Route53
+	// synchronization when deleting records, even if WaitForRoute53Sync is true.
+	// This can speed up bulk delete operations where waiting is not necessary.
+	SkipRoute53SyncOnDelete bool `json:"skip_route53_sync_on_delete,omitempty"`
+
 	// HostedZoneID is the ID of the hosted zone to use. If not set, it will
 	// be discovered from the zone name.
 	//
@@ -160,6 +165,9 @@ type recordSetKey struct {
 // it will be looked up. It returns the records that were deleted.
 func (p *Provider) DeleteRecords(ctx context.Context, zone string, records []libdns.Record) ([]libdns.Record, error) {
 	p.init(ctx)
+
+	// mark this context as a delete operation
+	ctx = context.WithValue(ctx, contextKeyIsDeleteOperation, true)
 
 	zoneID, err := p.getZoneID(ctx, zone)
 	if err != nil {

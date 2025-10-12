@@ -17,6 +17,12 @@ import (
 	"github.com/libdns/libdns"
 )
 
+type contextKey int
+
+const (
+	contextKeyIsDeleteOperation contextKey = iota
+)
+
 const (
 	// defaultTTL is the default TTL for DNS records in seconds.
 	defaultTTL = 300
@@ -392,8 +398,17 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 		return err
 	}
 
-	// Waiting for propagation if it's set in the provider config.
-	if p.WaitForRoute53Sync {
+	// Check if we should skip waiting for synchronization
+	shouldWait := p.WaitForRoute53Sync
+	if shouldWait && p.SkipRoute53SyncOnDelete {
+		// Check if this is a delete operation
+		if isDelete, ok := ctx.Value(contextKeyIsDeleteOperation).(bool); ok && isDelete {
+			shouldWait = false
+		}
+	}
+
+	// Wait for propagation if enabled and not skipped
+	if shouldWait {
 		changeInput := &r53.GetChangeInput{
 			Id: changeResult.ChangeInfo.Id,
 		}

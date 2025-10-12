@@ -1,6 +1,6 @@
 # Breaking Changes
 
-## Version 1.6 (Upcoming)
+## Version 1.6
 
 ### libdns 1.0 Compatibility
 
@@ -82,27 +82,30 @@ provider := &route53.Provider{
 
 **Rationale:** The new name clearly indicates this waits for Route53's internal synchronization, not worldwide DNS propagation (which can take hours depending on TTL values).
 
-### JSON Configuration
+### Removed Deprecated Fields
 
-If you're using JSON configuration, update your field names:
+Two deprecated fields have been removed in v1.6:
 
-**Old (pre-v1.6):**
-```json
-{
-  "max_wait_dur": 60,
-  "wait_for_propagation": true
+- **`AWSProfile`** → Use `Profile` instead
+- **`Token`** → Use `SessionToken` instead
+
+These fields were deprecated several versions ago and have identical functionality to their replacements.
+
+```go
+// Old (removed in v1.6)
+provider := &route53.Provider{
+    AWSProfile: "my-profile",
+    Token:      "my-session-token",
+}
+
+// New (v1.6+)
+provider := &route53.Provider{
+    Profile:      "my-profile",
+    SessionToken: "my-session-token",
 }
 ```
 
-**New (v1.6+):**
-```json
-{
-  "route53_max_wait": "2m",
-  "wait_for_route53_sync": true
-}
-```
-
-Note: The old `max_wait_dur` field accepted a numeric value (seconds), while the new `route53_max_wait` field uses standard Go duration strings like `"2m"`, `"120s"`, etc.
+**JSON Configuration:** If using JSON config, update field names: `aws_profile` → `profile`, `token` → `session_token`
 
 ## Migration Checklist
 
@@ -110,5 +113,7 @@ Note: The old `max_wait_dur` field accepted a numeric value (seconds), while the
 - [ ] Rename `MaxWaitDur` to `Route53MaxWait` in your code
 - [ ] Change from plain integer (e.g., `60`) to proper `time.Duration` (e.g., `60 * time.Second`)
 - [ ] Rename `WaitForPropagation` to `WaitForRoute53Sync` in your code
+- [ ] Replace `AWSProfile` with `Profile` (if using)
+- [ ] Replace `Token` with `SessionToken` (if using)
 - [ ] Update JSON/YAML configuration files with new field names
 - [ ] Test your code thoroughly after migration

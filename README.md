@@ -111,6 +111,19 @@ When you update records in AWS Route53, changes first propagate internally acros
 
 See [Change Propagation to Route 53 DNS Servers](https://docs.aws.amazon.com/Route53/latest/APIReference/API_ChangeResourceRecordSets.html#API_ChangeResourceRecordSets_RequestSyntax:~:text=Change%20Propagation%20to%20Route%2053%20DNS%20Servers).
 
+### Performance optimization for delete operations
+
+By default, when `WaitForRoute53Sync` is enabled, the provider waits for synchronization on all operations, including deletes. For bulk delete operations where immediate consistency is not required, you can skip the wait on deletes by setting `SkipRoute53SyncOnDelete` to `true`:
+
+```go
+provider := &route53.Provider{
+    WaitForRoute53Sync:       true,  // Wait for sync on create/update
+    SkipRoute53SyncOnDelete:  true,  // Skip wait on delete for better performance
+}
+```
+
+This can significantly speed up bulk delete operations while still maintaining consistency guarantees for create and update operations.
+
 ## Contributing
 
 Contributions are welcome! Please ensure that:
