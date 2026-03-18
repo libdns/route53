@@ -115,16 +115,11 @@ func (p *Provider) appendRecordSet(
 		return nil, nil
 	}
 
-	// for single records, use the simple create
-	if len(recordGroup) == 1 {
-		newRecord, err := p.createRecord(ctx, zoneID, recordGroup[0], zone)
-		if err != nil {
-			return nil, err
-		}
-		return []libdns.Record{newRecord}, nil
-	}
-
-	// for multiple records, we need to append to existing set if it exists
+	// Retrieve existing records so we can merge and UPSERT.
+	// This is necessary because Route53 treats a ResourceRecordSet as a single
+	// entity — we must include all existing values when updating it. Using CREATE
+	// would fail if the record set already exists (e.g. a stale ACME challenge
+	// TXT record from a previous attempt).
 	existingRecords, err := p.getRecords(ctx, zoneID, zone)
 	if err != nil {
 		return nil, err
