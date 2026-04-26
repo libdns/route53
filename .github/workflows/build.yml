@@ -18,7 +18,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          # Pin to the version declared in go.mod. Using "stable" pulls in
+          # whatever Go version was released most recently, which can race
+          # ahead of golangci-lint releases — golangci-lint built with go1.25
+          # panics type-checking go1.26 stdlib sources, which is what broke CI.
+          go-version-file: go.mod
 
 
       - name: golangci-lint
