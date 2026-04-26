@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,6 +18,37 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/libdns/libdns"
 )
+
+// setLockKey identifies a critical section per (zoneID, name, recordType) —
+// the granularity at which Route53 read-modify-write must be serialized.
+type setLockKey struct {
+	zoneID, name, recordType string
+}
+
+// lockSet acquires the per-tuple mutex and returns a function to release it.
+// Distinct tuples parallelize; concurrent callers on the same tuple serialize.
+//
+// Holding the lock from getRecords through the ChangeResourceRecordSets call
+// closes the read-modify-write window — without it, two callers can both
+// observe pre-state and the later UPSERT clobbers the earlier (libdns
+// concurrency contract violation; manifests as ACME challenge token loss
+// when SAN certificates share a _acme-challenge RecordSet).
+//
+// The lock map grows with unique tuples touched by this Provider — bounded
+// by the number of (name, type) pairs in the zones it manages, which is
+// negligible in practice. Multi-process coordination is out of scope; users
+// running multiple processes against the same zone must coordinate
+// externally.
+func (p *Provider) lockSet(k setLockKey) func() {
+	actual, _ := p.setLocks.LoadOrStore(k, &sync.Mutex{})
+	mu, ok := actual.(*sync.Mutex)
+	if !ok {
+		// unreachable: setLocks only ever stores *sync.Mutex.
+		panic("route53: setLocks contains non-*sync.Mutex value")
+	}
+	mu.Lock()
+	return mu.Unlock
+}
 
 type contextKey int
 
@@ -99,56 +131,57 @@ func (p *Provider) deleteRecordSet(
 }
 
 func (p *Provider) init(ctx context.Context) {
+	// Logger fallback runs on every call, not just the first: the field
+	// docs promise nil → discard handler, and a caller might clear Logger
+	// after the provider was already initialized.
 	if p.Logger == nil {
 		p.Logger = slog.New(slog.DiscardHandler)
 	}
 
-	if p.client != nil {
-		return
-	}
+	p.initOnce.Do(func() {
+		if p.MaxRetries == 0 {
+			p.MaxRetries = 5
+		}
 
-	if p.MaxRetries == 0 {
-		p.MaxRetries = 5
-	}
+		if p.Route53MaxWait == 0 {
+			p.Route53MaxWait = time.Minute
+		}
 
-	if p.Route53MaxWait == 0 {
-		p.Route53MaxWait = time.Minute
-	}
-
-	opts := make([]func(*config.LoadOptions) error, 0)
-	opts = append(opts,
-		config.WithRetryer(func() aws.Retryer {
-			return retry.AddWithMaxAttempts(retry.NewStandard(), p.MaxRetries)
-		}),
-	)
-
-	profile := p.Profile
-
-	if profile != "" {
-		opts = append(opts, config.WithSharedConfigProfile(profile))
-	}
-
-	if p.Region != "" {
-		opts = append(opts, config.WithRegion(p.Region))
-	}
-
-	if p.AccessKeyId != "" && p.SecretAccessKey != "" {
-		token := p.SessionToken
-
-		opts = append(
-			opts,
-			config.WithCredentialsProvider(
-				credentials.NewStaticCredentialsProvider(p.AccessKeyId, p.SecretAccessKey, token),
-			),
+		opts := make([]func(*config.LoadOptions) error, 0)
+		opts = append(opts,
+			config.WithRetryer(func() aws.Retryer {
+				return retry.AddWithMaxAttempts(retry.NewStandard(), p.MaxRetries)
+			}),
 		)
-	}
 
-	cfg, err := config.LoadDefaultConfig(ctx, opts...)
-	if err != nil {
-		log.Fatalf("route53: unable to load AWS SDK config, %v", err)
-	}
+		profile := p.Profile
 
-	p.client = r53.NewFromConfig(cfg)
+		if profile != "" {
+			opts = append(opts, config.WithSharedConfigProfile(profile))
+		}
+
+		if p.Region != "" {
+			opts = append(opts, config.WithRegion(p.Region))
+		}
+
+		if p.AccessKeyId != "" && p.SecretAccessKey != "" {
+			token := p.SessionToken
+
+			opts = append(
+				opts,
+				config.WithCredentialsProvider(
+					credentials.NewStaticCredentialsProvider(p.AccessKeyId, p.SecretAccessKey, token),
+				),
+			)
+		}
+
+		cfg, err := config.LoadDefaultConfig(ctx, opts...)
+		if err != nil {
+			log.Fatalf("route53: unable to load AWS SDK config, %v", err)
+		}
+
+		p.client = r53.NewFromConfig(cfg)
+	})
 }
 
 func chunkString(s string, chunkSize int) []string {
@@ -356,69 +389,6 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 	}
 
 	return "", fmt.Errorf("HostedZoneNotFound: No zones found for the domain %s", zoneName)
-}
-
-// changeRecord performs a CREATE or UPSERT operation on a single record.
-func (p *Provider) changeRecord(
-	ctx context.Context,
-	zoneID string,
-	record libdns.Record,
-	zone string,
-	action types.ChangeAction,
-) (libdns.Record, error) {
-	rr := record.RR()
-	resourceRecords := marshalRecord(rr)
-	changeInput := &r53.ChangeResourceRecordSetsInput{
-		ChangeBatch: &types.ChangeBatch{
-			Changes: []types.Change{
-				{
-					Action: action,
-					ResourceRecordSet: &types.ResourceRecordSet{
-						Name:            aws.String(libdns.AbsoluteName(rr.Name, zone)),
-						ResourceRecords: resourceRecords,
-						TTL:             aws.Int64(int64(rr.TTL.Seconds())),
-						Type:            types.RRType(rr.Type),
-					},
-				},
-			},
-		},
-		HostedZoneId: aws.String(zoneID),
-	}
-
-	p.Logger.DebugContext(ctx, "applying Route53 record change",
-		"action", string(action),
-		"zone", zone,
-		"name", rr.Name,
-		"type", rr.Type,
-		"ttl_seconds", int64(rr.TTL.Seconds()))
-
-	err := p.applyChange(ctx, changeInput)
-	if err != nil {
-		return record, err
-	}
-
-	return record, nil
-}
-
-func (p *Provider) createRecord(
-	ctx context.Context,
-	zoneID string,
-	record libdns.Record,
-	zone string,
-) (libdns.Record, error) {
-	return p.changeRecord(ctx, zoneID, record, zone, types.ChangeActionCreate)
-}
-
-func (p *Provider) updateRecord(
-	ctx context.Context,
-	zoneID string,
-	record libdns.Record,
-	zone string,
-) (libdns.Record, error) {
-	// route53's UPSERT replaces the entire ResourceRecordSet
-	// for TXT records with the same name, we might want to preserve other values
-	// but for libdns SetRecords, we should replace everything
-	return p.changeRecord(ctx, zoneID, record, zone, types.ChangeActionUpsert)
 }
 
 func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRecordSetsInput) error {
