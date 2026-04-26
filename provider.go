@@ -2,6 +2,7 @@ package route53
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	r53 "github.com/aws/aws-sdk-go-v2/service/route53"
@@ -59,6 +60,15 @@ type Provider struct {
 	// This option should contain only the ID; the "/hostedzone/" prefix
 	// will be added automatically.
 	HostedZoneID string `json:"hosted_zone_id,omitempty"`
+
+	// Logger receives structured log events emitted by the provider. If nil,
+	// a discard handler is used. Wrappers (for example, the Caddy DNS module)
+	// can adapt their own logger via slog.Handler — for zap, see
+	// go.uber.org/zap/exp/zapslog.
+	//
+	// All events are emitted at Debug level except for ambiguous zone
+	// resolution, which is Warn.
+	Logger *slog.Logger `json:"-"`
 }
 
 // GetRecords lists all the records in the zone.

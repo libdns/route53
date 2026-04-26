@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -68,6 +69,14 @@ func (p *Provider) changeRecordSet(
 		HostedZoneId: aws.String(zoneID),
 	}
 
+	p.Logger.DebugContext(ctx, "applying Route53 record set change",
+		"action", string(action),
+		"zone", zone,
+		"name", name,
+		"type", recordType,
+		"value_count", len(resourceRecords),
+		"ttl_seconds", ttl)
+
 	return p.applyChange(ctx, input)
 }
 
@@ -90,6 +99,10 @@ func (p *Provider) deleteRecordSet(
 }
 
 func (p *Provider) init(ctx context.Context) {
+	if p.Logger == nil {
+		p.Logger = slog.New(slog.DiscardHandler)
+	}
+
 	if p.client != nil {
 		return
 	}
@@ -285,6 +298,8 @@ func (p *Provider) getRecords(ctx context.Context, zoneID string, zone string) (
 
 func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, error) {
 	if p.HostedZoneID != "" {
+		p.Logger.DebugContext(ctx, "using preconfigured hosted zone id",
+			"zone", zoneName, "hosted_zone_id", p.HostedZoneID)
 		return "/hostedzone/" + p.HostedZoneID, nil
 	}
 
@@ -318,6 +333,8 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 	}
 
 	if len(matchingZones) == 1 {
+		p.Logger.DebugContext(ctx, "resolved hosted zone",
+			"zone", zoneName, "hosted_zone_id", *matchingZones[0].Id)
 		return *matchingZones[0].Id, nil
 	}
 
@@ -326,11 +343,15 @@ func (p *Provider) getZoneID(ctx context.Context, zoneName string) (string, erro
 		// select the first public (i.e. ot-private) zone as a best guess.
 		for _, zone := range matchingZones {
 			if !zone.Config.PrivateZone {
+				p.Logger.WarnContext(ctx, "multiple hosted zones match name; choosing first public zone",
+					"zone", zoneName, "match_count", len(matchingZones), "hosted_zone_id", *zone.Id)
 				return *zone.Id, nil
 			}
 		}
 		// All zone were private, give up and return.
 		// Historically we always returned the first match without checking for public/private
+		p.Logger.WarnContext(ctx, "multiple private hosted zones match name; choosing first match",
+			"zone", zoneName, "match_count", len(matchingZones), "hosted_zone_id", *matchingZones[0].Id)
 		return *matchingZones[0].Id, nil
 	}
 
@@ -345,23 +366,31 @@ func (p *Provider) changeRecord(
 	zone string,
 	action types.ChangeAction,
 ) (libdns.Record, error) {
-	resourceRecords := marshalRecord(record.RR())
+	rr := record.RR()
+	resourceRecords := marshalRecord(rr)
 	changeInput := &r53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &types.ChangeBatch{
 			Changes: []types.Change{
 				{
 					Action: action,
 					ResourceRecordSet: &types.ResourceRecordSet{
-						Name:            aws.String(libdns.AbsoluteName(record.RR().Name, zone)),
+						Name:            aws.String(libdns.AbsoluteName(rr.Name, zone)),
 						ResourceRecords: resourceRecords,
-						TTL:             aws.Int64(int64(record.RR().TTL.Seconds())),
-						Type:            types.RRType(record.RR().Type),
+						TTL:             aws.Int64(int64(rr.TTL.Seconds())),
+						Type:            types.RRType(rr.Type),
 					},
 				},
 			},
 		},
 		HostedZoneId: aws.String(zoneID),
 	}
+
+	p.Logger.DebugContext(ctx, "applying Route53 record change",
+		"action", string(action),
+		"zone", zone,
+		"name", rr.Name,
+		"type", rr.Type,
+		"ttl_seconds", int64(rr.TTL.Seconds()))
 
 	err := p.applyChange(ctx, changeInput)
 	if err != nil {
@@ -398,12 +427,19 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 		return err
 	}
 
+	changeID := aws.ToString(changeResult.ChangeInfo.Id)
+	p.Logger.DebugContext(ctx, "Route53 change submitted",
+		"change_id", changeID,
+		"status", string(changeResult.ChangeInfo.Status))
+
 	// Check if we should skip waiting for synchronization
 	shouldWait := p.WaitForRoute53Sync
+	skippedForDelete := false
 	if shouldWait && p.SkipRoute53SyncOnDelete {
 		// Check if this is a delete operation
 		if isDelete, ok := ctx.Value(contextKeyIsDeleteOperation).(bool); ok && isDelete {
 			shouldWait = false
+			skippedForDelete = true
 		}
 	}
 
@@ -413,12 +449,20 @@ func (p *Provider) applyChange(ctx context.Context, input *r53.ChangeResourceRec
 			Id: changeResult.ChangeInfo.Id,
 		}
 
+		p.Logger.DebugContext(ctx, "waiting for Route53 sync",
+			"change_id", changeID, "max_wait", p.Route53MaxWait)
+
 		// Wait for the RecordSetChange status to be "INSYNC"
 		waiter := r53.NewResourceRecordSetsChangedWaiter(p.client)
 		err = waiter.Wait(ctx, changeInput, p.Route53MaxWait)
 		if err != nil {
 			return err
 		}
+
+		p.Logger.DebugContext(ctx, "Route53 sync complete", "change_id", changeID)
+	} else if skippedForDelete {
+		p.Logger.DebugContext(ctx, "skipping Route53 sync wait for delete operation",
+			"change_id", changeID)
 	}
 
 	return nil
