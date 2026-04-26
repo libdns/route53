@@ -3,7 +3,7 @@ module github.com/libdns/route53/libdnstest
 go 1.25
 
 require (
-	github.com/libdns/libdns v1.1.1
+	github.com/libdns/libdns v1.2.0-alpha.1
 	github.com/libdns/route53 v0.0.0
 )
 
@@ -25,5 +25,3 @@ require (
 )
 
 replace github.com/libdns/route53 => ../
-
-replace github.com/libdns/libdns => ../../libdns
