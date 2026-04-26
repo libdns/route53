@@ -65,6 +65,12 @@ go test -v
 - **Zone Listing**: ListZones (if provider implements it)
 - **All Record Types**: A, AAAA, CNAME, TXT, MX, SRV, CAA, NS, SVCB, HTTPS
 
+In addition to the upstream `libdnstest` suite, this directory contains Route53-specific regression tests:
+
+- `TestAppendRecords_Concurrent` — many goroutines append distinct values to the same `(name, type)`; verifies all values survive (covers the SAN ACME challenge race that upstream's serial suite does not exercise).
+- `TestSetRecords_MultiValue` — `SetRecords` with multiple values for the same `(name, type)` keeps all of them.
+- `TestSkipRoute53SyncOnDelete_Performance` — verifies the `SkipRoute53SyncOnDelete` optimization actually skips the INSYNC wait.
+
 **Note**: These tests interact directly with the Route53 API and do not perform actual DNS queries. They verify that the provider correctly manages records through the AWS API.
 
 ## Important Warnings
