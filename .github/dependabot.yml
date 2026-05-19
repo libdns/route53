@@ -9,6 +9,11 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      aws-sdk-go-v2:
+        patterns:
+          - "github.com/aws/aws-sdk-go-v2*"
+          - "github.com/aws/smithy-go"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
