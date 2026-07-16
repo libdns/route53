@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           # Pin to the version declared in go.mod. Using "stable" pulls in
           # whatever Go version was released most recently, which can race
