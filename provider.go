@@ -3,6 +3,7 @@ package route53
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -179,8 +180,19 @@ type recordSetKey struct {
 	recordType string
 }
 
-// DeleteRecords deletes the records from the zone. If a record does not have an ID,
-// it will be looked up. It returns the records that were deleted.
+// DeleteRecords deletes the given records from the zone and returns the
+// records that were actually deleted. Input records that do not exist in the
+// zone are silently ignored.
+//
+// As the libdns contract requires, an empty value or an empty type acts as a
+// wildcard: an empty value matches every value in the targeted record set,
+// and an empty type applies the deletion to every record type at that name.
+// The zone's own SOA and NS record sets are never matched by an empty type,
+// because Route53 does not allow deleting them.
+//
+// TTL is not compared. Route53 keeps one TTL per record set rather than per
+// value, so the TTL a caller holds for a record can legitimately differ from
+// the stored one.
 func (p *Provider) DeleteRecords(ctx context.Context, zone string, records []libdns.Record) ([]libdns.Record, error) {
 	p.init(ctx)
 
@@ -195,7 +207,10 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, records []lib
 	// group records by name+type and process each set under its own per-tuple
 	// lock. Reading existing values is done inside that lock so concurrent
 	// callers cannot observe stale state.
-	toDelete := p.groupRecordsByKey(records)
+	toDelete, err := p.groupDeletionsByKey(ctx, zoneID, zone, records)
+	if err != nil {
+		return nil, err
+	}
 
 	var deletedRecords []libdns.Record
 	for key, deleteGroup := range toDelete {
@@ -221,6 +236,77 @@ func (p *Provider) groupRecordsByKey(records []libdns.Record) map[recordSetKey][
 		grouped[key] = append(grouped[key], record)
 	}
 	return grouped
+}
+
+// groupDeletionsByKey groups the records to delete by the ResourceRecordSet
+// they target. A record with an empty type targets every record set at its
+// name, so the zone is listed to find out which sets exist. That listing only
+// decides which sets to visit — the values to delete are read again under
+// each set's lock in processRecordSetDeletion.
+func (p *Provider) groupDeletionsByKey(
+	ctx context.Context,
+	zoneID, zone string,
+	records []libdns.Record,
+) (map[recordSetKey][]libdns.Record, error) {
+	hasEmptyType := slices.ContainsFunc(records, func(record libdns.Record) bool {
+		return record.RR().Type == ""
+	})
+
+	var existingRecords []libdns.Record
+	if hasEmptyType {
+		var err error
+		existingRecords, err = p.getRecords(ctx, zoneID, zone)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return groupDeletions(records, existingRecords), nil
+}
+
+// groupDeletions groups the records to delete by name and type. Records with
+// an empty type are added to the group of every set in existingRecords that
+// shares their name, except the zone's own SOA and NS sets.
+func groupDeletions(records, existingRecords []libdns.Record) map[recordSetKey][]libdns.Record {
+	grouped := make(map[recordSetKey][]libdns.Record)
+	var anyType []libdns.Record
+	for _, record := range records {
+		rr := record.RR()
+		if rr.Type == "" {
+			anyType = append(anyType, record)
+			continue
+		}
+		key := recordSetKey{name: rr.Name, recordType: rr.Type}
+		grouped[key] = append(grouped[key], record)
+	}
+	if len(anyType) == 0 {
+		return grouped
+	}
+
+	// existingRecords holds one entry per value, so a set with several values
+	// shows up several times; visit each set once.
+	visited := make(map[recordSetKey]bool)
+	for _, existing := range existingRecords {
+		existingRR := existing.RR()
+		key := recordSetKey{name: existingRR.Name, recordType: existingRR.Type}
+		if visited[key] || isZoneOwnedSet(key) {
+			continue
+		}
+		visited[key] = true
+		for _, record := range anyType {
+			if record.RR().Name == key.name {
+				grouped[key] = append(grouped[key], record)
+			}
+		}
+	}
+
+	return grouped
+}
+
+// isZoneOwnedSet reports whether key is the zone's own SOA or NS record set.
+// Route53 creates these with the hosted zone and rejects deleting them.
+func isZoneOwnedSet(key recordSetKey) bool {
+	return key.name == "@" && (key.recordType == "SOA" || key.recordType == "NS")
 }
 
 // processRecordSetDeletion handles the deletion of records from a single
@@ -252,20 +338,10 @@ func (p *Provider) processRecordSetDeletion(
 		return nil, nil
 	}
 
-	// build set of values to delete
-	deleteValues := make(map[string]bool)
-	for _, rec := range deleteGroup {
-		deleteValues[rec.RR().Data] = true
-	}
-
-	// determine which records to keep and which to delete
-	var remainingValues, deletedRecords []libdns.Record
-	for _, existing := range existingValues {
-		if deleteValues[existing.RR().Data] {
-			deletedRecords = append(deletedRecords, existing)
-		} else {
-			remainingValues = append(remainingValues, existing)
-		}
+	remainingValues, deletedRecords := splitRecordSet(existingValues, deleteGroup)
+	if len(deletedRecords) == 0 {
+		// nothing matched; leave the record set untouched
+		return nil, nil
 	}
 
 	// apply the appropriate operation
@@ -282,6 +358,31 @@ func (p *Provider) processRecordSetDeletion(
 	}
 
 	return deletedRecords, nil
+}
+
+// splitRecordSet partitions the existing values of one record set into those
+// to keep and those matched by deleteGroup. An empty value in deleteGroup is
+// a wildcard that matches every existing value.
+func splitRecordSet(existingValues, deleteGroup []libdns.Record) ([]libdns.Record, []libdns.Record) {
+	deleteAll := false
+	deleteValues := make(map[string]bool)
+	for _, rec := range deleteGroup {
+		data := rec.RR().Data
+		if data == "" {
+			deleteAll = true
+		}
+		deleteValues[data] = true
+	}
+
+	var remaining, deleted []libdns.Record
+	for _, existing := range existingValues {
+		if deleteAll || deleteValues[existing.RR().Data] {
+			deleted = append(deleted, existing)
+		} else {
+			remaining = append(remaining, existing)
+		}
+	}
+	return remaining, deleted
 }
 
 // SetRecords sets the records in the zone. For each (name, type) tuple
