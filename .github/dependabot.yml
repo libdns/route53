@@ -1,7 +1,13 @@
 version: 2
 updates:
   - package-ecosystem: "gomod"
-    directory: "/"
+    # examples/ and libdnstest/ are separate modules that `replace` the root
+    # module, so all three go.mod files have to move together — bumping only
+    # the root leaves the other two needing `go mod tidy` and fails CI.
+    directories:
+      - "/"
+      - "/examples"
+      - "/libdnstest"
     schedule:
       interval: "daily"
     labels:
@@ -14,6 +20,11 @@ updates:
         patterns:
           - "github.com/aws/aws-sdk-go-v2*"
           - "github.com/aws/smithy-go"
+      # Everything else is grouped too, so a bump lands as one PR covering all
+      # three modules instead of one PR per directory.
+      go-modules:
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
