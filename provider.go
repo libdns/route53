@@ -3,7 +3,6 @@ package route53
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 
@@ -240,67 +239,40 @@ func (p *Provider) groupRecordsByKey(records []libdns.Record) map[recordSetKey][
 
 // groupDeletionsByKey groups the records to delete by the ResourceRecordSet
 // they target. A record with an empty type targets every record set at its
-// name, so the zone is listed to find out which sets exist. That listing only
-// decides which sets to visit — the values to delete are read again under
-// each set's lock in processRecordSetDeletion.
+// name except the zone's own SOA and NS sets, so the zone is listed to find
+// out which sets exist. That listing only decides which sets to visit — the
+// values to delete are read again under each set's lock in
+// processRecordSetDeletion.
 func (p *Provider) groupDeletionsByKey(
 	ctx context.Context,
 	zoneID, zone string,
 	records []libdns.Record,
 ) (map[recordSetKey][]libdns.Record, error) {
-	hasEmptyType := slices.ContainsFunc(records, func(record libdns.Record) bool {
-		return record.RR().Type == ""
-	})
+	grouped := p.groupRecordsByKey(records)
 
-	var existingRecords []libdns.Record
-	if hasEmptyType {
-		var err error
-		existingRecords, err = p.getRecords(ctx, zoneID, zone)
-		if err != nil {
-			return nil, err
+	// pull the empty-type groups out, indexed by name
+	anyType := make(map[string][]libdns.Record)
+	for key, group := range grouped {
+		if key.recordType == "" {
+			anyType[key.name] = group
+			delete(grouped, key)
 		}
-	}
-
-	return groupDeletions(records, existingRecords), nil
-}
-
-// groupDeletions groups the records to delete by name and type. Records with
-// an empty type are added to the group of every set in existingRecords that
-// shares their name, except the zone's own SOA and NS sets.
-func groupDeletions(records, existingRecords []libdns.Record) map[recordSetKey][]libdns.Record {
-	grouped := make(map[recordSetKey][]libdns.Record)
-	var anyType []libdns.Record
-	for _, record := range records {
-		rr := record.RR()
-		if rr.Type == "" {
-			anyType = append(anyType, record)
-			continue
-		}
-		key := recordSetKey{name: rr.Name, recordType: rr.Type}
-		grouped[key] = append(grouped[key], record)
 	}
 	if len(anyType) == 0 {
-		return grouped
+		return grouped, nil
 	}
 
-	// existingRecords holds one entry per value, so a set with several values
-	// shows up several times; visit each set once.
-	visited := make(map[recordSetKey]bool)
-	for _, existing := range existingRecords {
-		existingRR := existing.RR()
-		key := recordSetKey{name: existingRR.Name, recordType: existingRR.Type}
-		if visited[key] || isZoneOwnedSet(key) {
-			continue
-		}
-		visited[key] = true
-		for _, record := range anyType {
-			if record.RR().Name == key.name {
-				grouped[key] = append(grouped[key], record)
-			}
+	existingRecords, err := p.getRecords(ctx, zoneID, zone)
+	if err != nil {
+		return nil, err
+	}
+	for key := range p.groupRecordsByKey(existingRecords) {
+		if group := anyType[key.name]; len(group) > 0 && !isZoneOwnedSet(key) {
+			grouped[key] = append(grouped[key], group...)
 		}
 	}
 
-	return grouped
+	return grouped, nil
 }
 
 // isZoneOwnedSet reports whether key is the zone's own SOA or NS record set.
@@ -334,13 +306,10 @@ func (p *Provider) processRecordSetDeletion(
 			existingValues = append(existingValues, existing)
 		}
 	}
-	if len(existingValues) == 0 {
-		return nil, nil
-	}
 
 	remainingValues, deletedRecords := splitRecordSet(existingValues, deleteGroup)
 	if len(deletedRecords) == 0 {
-		// nothing matched; leave the record set untouched
+		// the set does not exist or nothing in it matched; leave it untouched
 		return nil, nil
 	}
 
@@ -364,15 +333,11 @@ func (p *Provider) processRecordSetDeletion(
 // to keep and those matched by deleteGroup. An empty value in deleteGroup is
 // a wildcard that matches every existing value.
 func splitRecordSet(existingValues, deleteGroup []libdns.Record) ([]libdns.Record, []libdns.Record) {
-	deleteAll := false
 	deleteValues := make(map[string]bool)
 	for _, rec := range deleteGroup {
-		data := rec.RR().Data
-		if data == "" {
-			deleteAll = true
-		}
-		deleteValues[data] = true
+		deleteValues[rec.RR().Data] = true
 	}
+	deleteAll := deleteValues[""]
 
 	var remaining, deleted []libdns.Record
 	for _, existing := range existingValues {

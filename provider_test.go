@@ -51,10 +51,8 @@ func (s fakeRecordSet) String() string {
 }
 
 type fakeListResponse struct {
-	XMLName     xml.Name        `xml:"https://route53.amazonaws.com/doc/2013-04-01/ ListResourceRecordSetsResponse"`
-	Sets        []fakeRecordSet `xml:"ResourceRecordSets>ResourceRecordSet"`
-	IsTruncated bool            `xml:"IsTruncated"`
-	MaxItems    int             `xml:"MaxItems"`
+	XMLName xml.Name        `xml:"https://route53.amazonaws.com/doc/2013-04-01/ ListResourceRecordSetsResponse"`
+	Sets    []fakeRecordSet `xml:"ResourceRecordSets>ResourceRecordSet"`
 }
 
 type fakeChangeRequest struct {
@@ -83,7 +81,7 @@ func (f *fakeRoute53) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		f.lists++
-		_ = xml.NewEncoder(w).Encode(fakeListResponse{Sets: f.sets, MaxItems: maxRecordsPerPage})
+		_ = xml.NewEncoder(w).Encode(fakeListResponse{Sets: f.sets})
 	case http.MethodPost:
 		var req fakeChangeRequest
 		if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
